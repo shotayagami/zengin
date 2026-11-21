@@ -198,7 +198,7 @@ impl World {
         let cfg = PeerCfg::new("bank", cc(COMP_B_CODE), cc(BANK2_CODE), "CPW001", "CKEY01").unwrap();
         let s = std::net::TcpStream::connect(self.bank2_addr.unwrap()).unwrap();
         tune(&s, &self.opts).unwrap();
-        let f = fetch_file(s, &cfg, &clock(), make_name("5020", "0001", 1), 200, &self.opts).unwrap()?;
+        let f = fetch_file(s, &cfg, &clock(), make_name("5020", "0001", 1), 200, false, &self.opts).unwrap()?;
         let p = fmt(FileKind::Nyukin).parse(&f.data).unwrap();
         assert_eq!(p.header.num("bank_no"), 2);
         assert_eq!(p.header.get("acct_no"), "0000001");

@@ -112,6 +112,8 @@ pub struct BankState {
     cycles: HashMap<String, u8>,
     /// 振込入金通知として渡している途中の通知の識別子 (企業ごと)
     inflight: HashMap<String, Vec<u64>>,
+    /// 最後に渡し終えた振込入金通知のファイル (企業ごと)。再送要求で、もう一度渡すために残す
+    last_notice: HashMap<String, Vec<u8>>,
 }
 
 fn acct_str(k: &AcctKey) -> String {
@@ -163,6 +165,7 @@ impl BankState {
             inquiry: 0,
             cycles: HashMap::new(),
             inflight: HashMap::new(),
+            last_notice: HashMap::new(),
         }
     }
 
@@ -367,6 +370,16 @@ impl BankState {
                 _ => return corrupt("meta.tsv", &l),
             }
         }
+        for l in self.store.lines("lastnotice.tsv")? {
+            let data = l.split_once('\t').and_then(|(name, hex)| {
+                let bytes = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok());
+                Some((name.to_string(), bytes.collect::<Option<Vec<u8>>>()?))
+            });
+            match data {
+                Some((name, bytes)) => self.last_notice.insert(name, bytes),
+                None => return corrupt("lastnotice.tsv", &l),
+            };
+        }
         Ok(())
     }
 
@@ -426,6 +439,8 @@ impl BankState {
             format!("inquiry\t{}", self.inquiry),
         ];
         meta.extend(self.cycles.iter().map(|(k, v)| format!("cycle\t{k}\t{v}")));
+        let hex = |d: &Vec<u8>| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let last: Vec<String> = self.last_notice.iter().map(|(k, d)| format!("{k}\t{}", hex(d))).collect();
         for (name, lines) in [
             ("accounts.tsv", accounts),
             ("outq.tsv", outq),
@@ -435,6 +450,7 @@ impl BankState {
             ("seen.tsv", seen),
             ("files.tsv", files),
             ("meta.tsv", meta),
+            ("lastnotice.tsv", last),
         ] {
             if let Err(e) = self.store.write(name, &lines) {
                 eprintln!("[{WHO}] {name} の保存に失敗: {e}");
@@ -980,15 +996,31 @@ impl Handler for BankState {
         let Some(c) = self.companies.iter().find(|c| c.name == peer.name).cloned() else {
             return Err(OTHER_ERR);
         };
-        self.build_notice_file(&c).map_err(|e| {
+        let built = self.build_notice_file(&c).map_err(|e| {
             self.log(&format!("振込入金通知を作れない: {e}"));
             OTHER_ERR
-        })
+        })?;
+        if built.is_some() || f.kind != crate::control::RETRY_REQ {
+            return Ok(built);
+        }
+        // 再送要求で、まだ渡していない通知がなければ、最後に渡し終えたファイルをもう一度渡す
+        let Some(data) = self.last_notice.get(&c.name).cloned() else {
+            return Ok(None);
+        };
+        self.log(&format!("{}: 渡し終えた振込入金通知を、再送要求でもう一度渡す", c.name));
+        Ok(Some(OutFile {
+            name: f.name,
+            rec_len: fmt(FileKind::Nyukin).rec_len,
+            code: Code::Jis,
+            data,
+            compress: false,
+        }))
     }
 
     /// 閉局回答を返したあとに呼ばれる (企業が受け取れなかった場合に通知を失わないため)。
-    fn commit_send(&mut self, peer: &PeerCfg, _: &OutFile) {
+    fn commit_send(&mut self, peer: &PeerCfg, f: &OutFile) {
         if let Some(ids) = self.inflight.remove(&peer.name) {
+            self.last_notice.insert(peer.name.clone(), f.data.clone());
             // 件数ではなく識別子で消す。取得が重なっても、渡していない通知は消えない
             self.notices.retain(|x| !(x.company == peer.name && ids.contains(&x.id)));
             let c = self.cycles.entry(peer.name.clone()).or_insert(0);

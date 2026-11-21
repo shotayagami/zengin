@@ -169,9 +169,17 @@ fn shokai_returns_file_and_commits() {
         Opts::default(),
     );
     let o = Opts::default();
-    let got = fetch_file(connect(srv.addr, &o), &client_cfg(), &clock, make_name("5020", "0001", 1), 200, &o)
-        .unwrap()
-        .unwrap();
+    let got = fetch_file(
+        connect(srv.addr, &o),
+        &client_cfg(),
+        &clock,
+        make_name("5020", "0001", 1),
+        200,
+        false,
+        &o,
+    )
+    .unwrap()
+    .unwrap();
     srv.t.join().unwrap().unwrap();
     assert_eq!(got.data, data);
     assert_eq!(srv.h.lock().unwrap().sent_committed, 1);
@@ -182,7 +190,16 @@ fn shokai_without_file() {
     let clock = Clock::default();
     let srv = start(Test::default(), Opts::default());
     let o = Opts::default();
-    let got = fetch_file(connect(srv.addr, &o), &client_cfg(), &clock, make_name("5020", "0001", 1), 200, &o).unwrap();
+    let got = fetch_file(
+        connect(srv.addr, &o),
+        &client_cfg(),
+        &clock,
+        make_name("5020", "0001", 1),
+        200,
+        false,
+        &o,
+    )
+    .unwrap();
     srv.t.join().unwrap().unwrap();
     assert!(got.is_none());
     assert_eq!(srv.h.lock().unwrap().sent_committed, 0);
@@ -422,4 +439,109 @@ fn shokai_start_response_echoes_requested_name_and_compression() {
     assert_eq!((rsp.name, rsp.compress), (req.name, true));
     drop(link);
     let _ = srv.t.join();
+}
+
+#[test]
+fn shokai_can_start_with_resend_request() {
+    use zengin::control::{CLOSE_REQ, CommCtl, END_REQ, END_RSP, NO_FILE, OPEN_REQ, RETRY_REQ, START_RSP};
+    use zengin::sublayer::Link;
+    use zengin::text::{build_control, parse_data, parse_ttc};
+    // 前回の照会が途中で終わったとき、一次局は開始要求の代わりに再送要求 (全ファイル) で始める (Biware の「再受信モード」)。
+    // 二次局は開始回答を返さず、データ電文から送る
+    let f = fmt(FileKind::Nyukin);
+    let data = f
+        .build(
+            Code::Jis,
+            f.new_header().set_num("bank_no", 2),
+            &[f.new_data().set_num("amount", 500)],
+        )
+        .unwrap();
+    let cfg = client_cfg();
+    let comm = |kind: u8, pw: [u8; 6]| CommCtl {
+        kind,
+        result: 0,
+        peer: cfg.remote,
+        own: cfg.own,
+        time: [0x26, 0x11, 0x21, 0x15, 0x00, 0x00],
+        password: pw,
+        app: 0,
+        mode: 1,
+    };
+    let mut req = FileCtl::new(RETRY_REQ, make_name("5020", "0001", 1), cfg.key, 200, false);
+    (req.from, req.to) = (1, 0xFFFF);
+    let run = |outbox: Option<OutFile>| {
+        let srv = start(Test { outbox, ..Test::default() }, Opts::default());
+        let mut link = Link::new(TcpStream::connect(srv.addr).unwrap(), 0);
+        link.send(&build_control(&comm(OPEN_REQ, cfg.pw_open_req).encode()), true).unwrap();
+        link.recv().unwrap();
+        link.send(&build_control(&req.encode()), true).unwrap();
+        (srv, link)
+    };
+
+    let of = OutFile {
+        name: req.name,
+        rec_len: 200,
+        code: Code::Jis,
+        data: data.clone(),
+        compress: false,
+    };
+    let (srv, mut link) = run(Some(of));
+    let first = link.recv().unwrap();
+    assert!(parse_ttc(&first).unwrap().data, "開始回答ではなくデータ電文が来る");
+    assert_eq!(parse_data(&first, false).unwrap().1, data);
+    let mut end = FileCtl::decode(&link.recv().unwrap()[5..]).unwrap();
+    assert_eq!((end.kind, end.texts, end.records), (END_REQ, 1, 4));
+    end.kind = END_RSP;
+    link.send(&build_control(&end.encode()), true).unwrap();
+    link.send(&build_control(&comm(CLOSE_REQ, cfg.pw_close_req).encode()), true)
+        .unwrap();
+    link.recv().unwrap();
+    srv.t.join().unwrap().unwrap();
+    assert_eq!(srv.h.lock().unwrap().sent_committed, 1);
+
+    // 送るファイルがなければ、開始回答 (ファイルなし) を返す
+    let (srv, mut link) = run(None);
+    let rsp = FileCtl::decode(&link.recv().unwrap()[5..]).unwrap();
+    assert_eq!((rsp.kind, rsp.result), (START_RSP, NO_FILE));
+    drop(link);
+    let _ = srv.t.join();
+}
+
+#[test]
+fn fetch_with_resend_request() {
+    // 一次局が再送要求で照会を始める (`fetch --resend`)。ファイルがあれば受け取り、なければ None
+    let clock = Clock::default();
+    let f = fmt(FileKind::Nyukin);
+    let data = f
+        .build(
+            Code::Jis,
+            f.new_header().set_num("bank_no", 2),
+            &[f.new_data().set_num("amount", 500)],
+        )
+        .unwrap();
+    let name = make_name("5020", "0001", 1);
+    let of = OutFile {
+        name,
+        rec_len: 200,
+        code: Code::Jis,
+        data: data.clone(),
+        compress: false,
+    };
+    let o = Opts::default();
+    let srv = start(
+        Test {
+            outbox: Some(of),
+            ..Test::default()
+        },
+        o.clone(),
+    );
+    let got = fetch_file(connect(srv.addr, &o), &client_cfg(), &clock, name, 200, true, &o).unwrap();
+    srv.t.join().unwrap().unwrap();
+    assert_eq!(got.unwrap().data, data);
+    assert_eq!(srv.h.lock().unwrap().sent_committed, 1);
+
+    let srv = start(Test::default(), o.clone());
+    let got = fetch_file(connect(srv.addr, &o), &client_cfg(), &clock, name, 200, true, &o).unwrap();
+    srv.t.join().unwrap().unwrap();
+    assert!(got.is_none());
 }

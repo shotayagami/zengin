@@ -181,6 +181,13 @@ fn bank_state_survives_restart() {
     let mut b = bank_state(tmp.store());
     assert_eq!(b.pending_notices("B"), 0);
     assert!(b.start_send(&peer, &req).unwrap().is_none());
+    // 再送要求なら、渡し終えたファイルをもう一度渡す (再起動をまたいでも残っている)。通知済みの件数は変わらない
+    let mut again = req.clone();
+    again.kind = zengin::control::RETRY_REQ;
+    let resent = b.start_send(&peer, &again).unwrap().expect("最後に渡したファイル");
+    assert_eq!(resent.data, out.data);
+    b.commit_send(&peer, &resent);
+    assert!(b.start_send(&peer, &req).unwrap().is_none());
 }
 
 #[test]

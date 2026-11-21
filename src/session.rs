@@ -261,15 +261,17 @@ fn recv_data<S: Read + Write>(
                     send_fctl(link, &rsp(END_RSP, TEXT_COUNT_ERR, got_t, got_r))?;
                     return rejected(TEXT_COUNT_ERR, "終了要求のテキスト数より大きい番号を受けた");
                 }
-                let missing: Vec<u16> = (1..=e.texts).filter(|s| !texts.contains_key(s)).collect();
-                if let (Some(&from), Some(&to)) = (missing.first(), missing.last()) {
+                if (1..=e.texts).any(|s| !texts.contains_key(&s)) {
                     retries += 1;
                     if retries > MAX_RETRIES {
                         return proto("再送の回数超過");
                     }
+                    // 抜けがあれば、全ファイルの再送を求める (From=1、To=全ビットオン)。仕様書の本文の再送はファイル単位
                     let mut r = rsp(RETRY_REQ, OK, 0, 0);
-                    (r.from, r.to) = (from, to);
+                    (r.from, r.to) = (1, 0xFFFF);
                     send_fctl(link, &r)?;
+                    texts.clear();
+                    total = 0;
                     continue;
                 }
                 let data: Vec<u8> = texts.values().flatten().copied().collect();
@@ -289,6 +291,8 @@ fn recv_data<S: Read + Write>(
                 send_fctl(link, &rsp(END_RSP, OK, got_t, got_r))?;
                 return Ok(file);
             }
+            // 再送要求で始めた照会に、送るファイルがないなどの理由で開始回答 (NG) が返ってきた場合
+            Msg::File(r) if r.kind == START_RSP && r.result != OK => return rejected(r.result, "開始回答が NG"),
             _ => return proto("データ電文/終了要求を待っているのに別の電文が来た"),
         }
     }
@@ -323,28 +327,34 @@ pub fn fetch_file<S: Read + Write>(
     clock: &Clock,
     name: [u8; 12],
     rec_len: usize,
+    resend: bool,
     opts: &Opts,
 ) -> Result<Option<InFile>> {
     let mut link = Link::new(s, opts.mn);
     open(&mut link, cfg, clock, 1)?;
-    send_fctl(&mut link, &FileCtl::new(START_REQ, name, cfg.key, rec_len as u16, false))?;
-    let expect = match recv_msg(&mut link, false)? {
-        Msg::File(r) if r.kind == START_RSP => match r.result {
-            OK => r,
-            NO_FILE => {
-                close(&mut link, cfg, clock, 1)?;
-                return Ok(None);
+    let mut req = FileCtl::new(START_REQ, name, cfg.key, rec_len as u16, false);
+    let got = if resend {
+        // 再送要求 (全ファイル) には開始回答が返らず、データ電文から来る。送るファイルがないときだけ開始回答が来る
+        (req.kind, req.from, req.to) = (RETRY_REQ, 1, 0xFFFF);
+        send_fctl(&mut link, &req)?;
+        recv_data(&mut link, &req, &mut |_| Ok(()), opts.max_file)
+    } else {
+        send_fctl(&mut link, &req)?;
+        match recv_msg(&mut link, false)? {
+            Msg::File(r) if r.kind == START_RSP && r.result != OK => rejected(r.result, "開始回答が NG"),
+            Msg::File(r) if r.kind == START_RSP && r.rec_len as usize != rec_len => {
+                proto(format!("開始回答のレコード長が期待と違う: {}", r.rec_len))
             }
-            c => return rejected(c, "開始回答が NG"),
-        },
-        _ => return proto("開始回答を待っているのに別の電文が来た"),
+            Msg::File(r) if r.kind == START_RSP => recv_data(&mut link, &r, &mut |_| Ok(()), opts.max_file),
+            _ => proto("開始回答を待っているのに別の電文が来た"),
+        }
     };
-    if expect.rec_len as usize != rec_len {
-        return proto(format!("開始回答のレコード長が期待と違う: {}", expect.rec_len));
-    }
-    let file = recv_data(&mut link, &expect, &mut |_| Ok(()), opts.max_file)?;
+    let file = match got {
+        Err(ZError::Rejected(NO_FILE, _)) => None,
+        r => Some(r?),
+    };
     close(&mut link, cfg, clock, 1)?;
-    Ok(Some(file))
+    Ok(file)
 }
 
 /// 二次局として1接続を処理する。
@@ -387,7 +397,8 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
     let mut sent: Option<OutFile> = None;
     loop {
         match recv_msg(&mut link, false)? {
-            Msg::File(f) if f.kind == START_REQ && !started => {
+            // 照会モードでは、開始要求の代わりに再送要求でも始められる (前回の照会が途中で終わったときの取り直し)
+            Msg::File(f) if (f.kind == START_REQ || (f.kind == RETRY_REQ && mode == 1)) && !started => {
                 started = true;
                 let check = if f.key != peer.key {
                     Err(FILE_KEY_ERR)
@@ -427,7 +438,10 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                             of.name = f.name;
                             of.compress = f.compress;
                             let base = rsp.clone();
-                            send_fctl(&mut link, &base)?;
+                            // 再送要求で始まったときは、開始回答を返さずにデータ電文から送る (仕様書 §VII の (2)②D)
+                            if f.kind == START_REQ {
+                                send_fctl(&mut link, &base)?;
+                            }
                             send_data(&mut link, &base, &of, opts)?;
                             sent = Some(of);
                         }

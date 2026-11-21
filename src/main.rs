@@ -19,7 +19,7 @@ const USAGE: &str = "\
     zengin gen sogo|kyuyo --out FILE --client-code N --client-name NAME --bank N [--code jis|ebcdic]
                           --item 銀行:支店:種目:口座:受取人名:金額 [--item ...]
     zengin send  --conf FILE --file FILE [--kind sogo|kyuyo] [--to ADDR] [--cycle N] [--compress] [--mn N]
-    zengin fetch --conf FILE --out FILE [--to ADDR] [--cycle N] [--mn N]
+    zengin fetch --conf FILE --out FILE [--to ADDR] [--cycle N] [--resend] [--mn N]
   銀行ノード:
     zengin bank serve     --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N]
     zengin bank statement --conf FILE --data DIR
@@ -37,7 +37,7 @@ struct Args {
 
 impl Args {
     fn parse(v: &[String]) -> Result<Args> {
-        const SWITCHES: [&str; 2] = ["compress", "offline"];
+        const SWITCHES: [&str; 3] = ["compress", "offline", "resend"];
         let (mut flags, mut pos) = (HashMap::<String, Vec<String>>::new(), Vec::new());
         let mut it = v.iter();
         while let Some(a) = it.next() {
@@ -189,7 +189,16 @@ fn cmd_fetch(a: &Args) -> Result<()> {
         .or(conf.global.get("addr"))
         .map_or_else(|| proto("--to か設定の addr が必要"), Ok)?;
     let name = make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle(a)?);
-    let Some(file) = fetch_file(io(connect(addr, &opts))?, &cfg, &Clock::default(), name, fm.rec_len, &opts)? else {
+    let Some(file) = fetch_file(
+        io(connect(addr, &opts))?,
+        &cfg,
+        &Clock::default(),
+        name,
+        fm.rec_len,
+        a.has("resend"),
+        &opts,
+    )?
+    else {
         println!("振込入金通知はない");
         return Ok(());
     };

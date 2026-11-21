@@ -155,3 +155,18 @@ fn biware_compressed_text_round_trips() {
     assert_eq!(&ours[5..7], [0x00, 0xf5]);
     assert_eq!(parse_data(&ours, true).unwrap().1, records);
 }
+
+#[test]
+fn biware_ebcdic_compressed_text_uses_zero_and_space_types() {
+    // EBCDIC の総合振込の最初のテキスト。0x4n はゼロ (0xF0)、0x8n はスペース (0x40) の繰り返し
+    let text = hex(
+        "11 00 01 00 40 00 f5 02 f1 f2 c2 f1 49 06 f1 86 5d 81 88 a5 a3 c2 f1 02 f2 f1 43 01 f1 8f 43 8f          48 91 01 f2 43 01 f2 8f 03 f0 f2 f0 8f 44 01 f1 46 04 f1 a2 be 91 9b 46 c2 f1 43 94 01 f0 88 00",
+    );
+    let (_, records) = parse_data(&text, true).unwrap();
+    assert_eq!(records.len(), 240);
+    assert_eq!(&records[..19], hex("f1 f2 f1 f1 f0 f0 f0 f0 f0 f0 f0 f0 f0 f1 86 5d 81 88 a5"));
+    // 本実装の圧縮も同じ種別を使う (Biware は 2 文字の繰り返しも圧縮するので、バイト列は同じにならない)
+    let ours = build_data(1, &records, Some(true));
+    assert!(ours.contains(&0x49) && ours.contains(&0x8f));
+    assert_eq!(parse_data(&ours, true).unwrap().1, records);
+}
