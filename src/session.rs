@@ -416,8 +416,17 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                             rsp.result = NO_FILE;
                             send_fctl(&mut link, &rsp)?;
                         }
-                        Ok(Some(of)) => {
-                            let base = FileCtl::new(START_RSP, of.name, peer.key, of.rec_len as u16, of.compress);
+                        Ok(Some(of)) if of.rec_len != f.rec_len as usize => {
+                            rsp.result = RECORD_LEN_ERR;
+                            send_fctl(&mut link, &rsp)?;
+                            return rejected(RECORD_LEN_ERR, "照会のレコード長が、送るファイルと違う");
+                        }
+                        Ok(Some(mut of)) => {
+                            // 開始回答は、要求のファイル名 (サイクルを含む) と圧縮の指定をそのまま返す。
+                            // Biware は、回答のファイル名が要求と違うと「全銀ファイル名の不一致」で打ち切る
+                            of.name = f.name;
+                            of.compress = f.compress;
+                            let base = rsp.clone();
                             send_fctl(&mut link, &base)?;
                             send_data(&mut link, &base, &of, opts)?;
                             sent = Some(of);

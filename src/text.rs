@@ -69,7 +69,8 @@ pub fn build_data(seq: u16, records: &[u8], compress: Compress) -> Vec<u8> {
         Some(ebcdic) => {
             let c = compress_body(records, ebcdic);
             put_ttc(&mut t, true, seq, TTC_LEN + 2 + c.len());
-            t.extend_from_slice(&(records.len() as u16).to_be_bytes());
+            // 圧縮前のテキスト長は TTC を含む (Biware との接続で確認)
+            t.extend_from_slice(&((TTC_LEN + records.len()) as u16).to_be_bytes());
             t.extend_from_slice(&c);
         }
     }
@@ -90,6 +91,9 @@ pub fn parse_data(text: &[u8], compressed: bool) -> Result<(u16, Vec<u8>)> {
         return proto("圧縮テキストが短い");
     }
     let pre = u16::from_be_bytes([body[0], body[1]]) as usize;
+    let Some(pre) = pre.checked_sub(TTC_LEN) else {
+        return proto("圧縮前のテキスト長が TTC より短い");
+    };
     Ok((ttc.seq, decompress_body(&body[2..], pre)?))
 }
 

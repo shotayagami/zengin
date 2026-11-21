@@ -2,3 +2,4 @@ target
 ref/
 *.tmp
 .claude/
+local/

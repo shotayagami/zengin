@@ -371,3 +371,55 @@ fn open_response_echoes_request_time_and_swaps_codes() {
     drop(link);
     let _ = srv.t.join();
 }
+
+#[test]
+fn shokai_start_response_echoes_requested_name_and_compression() {
+    use zengin::control::{CommCtl, OPEN_REQ, START_REQ, START_RSP};
+    use zengin::sublayer::Link;
+    use zengin::text::build_control;
+    // Biware は、開始回答のファイル名 (サイクルを含む) が要求と違うと打ち切る。二次局が持っているファイルの
+    // 名前や圧縮の有無ではなく、要求の値で返すこと
+    let f = fmt(FileKind::Nyukin);
+    let data = f
+        .build(
+            Code::Jis,
+            f.new_header().set_num("bank_no", 2),
+            &[f.new_data().set_num("amount", 500)],
+        )
+        .unwrap();
+    let of = OutFile {
+        name: make_name("5020", "0001", 2),
+        rec_len: 200,
+        code: Code::Jis,
+        data,
+        compress: false,
+    };
+    let srv = start(
+        Test {
+            outbox: Some(of),
+            ..Test::default()
+        },
+        Opts::default(),
+    );
+    let cfg = client_cfg();
+    let open = CommCtl {
+        kind: OPEN_REQ,
+        result: 0,
+        peer: cfg.remote,
+        own: cfg.own,
+        time: [0x26, 0x11, 0x21, 0x14, 0x42, 0x14],
+        password: cfg.pw_open_req,
+        app: 0,
+        mode: 1,
+    };
+    let mut link = Link::new(TcpStream::connect(srv.addr).unwrap(), 0);
+    link.send(&build_control(&open.encode()), true).unwrap();
+    link.recv().unwrap();
+    let req = FileCtl::new(START_REQ, make_name("5020", "0001", 1), cfg.key, 200, true);
+    link.send(&build_control(&req.encode()), true).unwrap();
+    let rsp = FileCtl::decode(&link.recv().unwrap()[5..]).unwrap();
+    assert_eq!((rsp.kind, rsp.result), (START_RSP, OK));
+    assert_eq!((rsp.name, rsp.compress), (req.name, true));
+    drop(link);
+    let _ = srv.t.join();
+}
