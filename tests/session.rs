@@ -8,7 +8,7 @@ use zengin::control::{CenterCode, FileCtl, OK, make_name};
 use zengin::handler::{Handler, InFile, OutFile, PeerCfg};
 use zengin::record::{FileKind, fmt};
 use zengin::session::{Done, Job, Opts, fetch_file, run, send_file, serve, tune};
-use zengin::util::{Clock, ZError};
+use zengin::util::{Clock, ZError, lock};
 
 fn cc(s: &str) -> CenterCode {
     CenterCode::parse(s).unwrap()
@@ -812,4 +812,95 @@ fn primary_resumes_when_start_is_answered_with_resend_request() {
     let file = out(sogo_file(38, Code::Jis), Code::Jis, false);
     send_file(connect(addr, &o), &client_cfg(), &Clock::default(), &file, &o).unwrap();
     assert_eq!(fake.join().unwrap(), [2, 3]);
+}
+
+/// 開局して開始要求を送り、最初のテキストから `n` 個だけ送って切る一次局 (回線が途中で切れた場合の再現)。
+fn send_part_and_vanish(addr: SocketAddr, file: &OutFile, n: usize) {
+    use zengin::control::{OPEN_REQ, START_REQ, START_RSP};
+    use zengin::sublayer::Link;
+    use zengin::text::texts_for;
+    let mut link = Link::new(TcpStream::connect(addr).unwrap(), 0);
+    raw::send_ctl(&mut link, &raw::comm(OPEN_REQ, 0).encode());
+    raw::recv_comm(&mut link);
+    let f = FileCtl::new(START_REQ, file.name, client_cfg().key, file.rec_len as u16, file.compress);
+    raw::send_ctl(&mut link, &f.encode());
+    assert_eq!(raw::recv_file(&mut link).kind, START_RSP);
+    for t in texts_for(&file.data, file.rec_len, file.compress.then_some(false))
+        .unwrap()
+        .iter()
+        .take(n)
+    {
+        link.send(t, true).unwrap(); // 論理ACK を待つので、確実に届いてから切る
+    }
+}
+
+fn resume_opts() -> Opts {
+    Opts {
+        resume: Some(Default::default()),
+        ..Opts::default()
+    }
+}
+
+#[test]
+fn contact_mode_resumes_from_where_the_line_dropped() {
+    // 仕様書48〜49頁 (d): 2 テキストまで受けたところで切れたら、次の接続の開始要求に「3 から」の再送要求を返し、続きだけ受ける
+    let opts = resume_opts();
+    let data = sogo_file(38, Code::Jis); // 3 テキスト
+    for compress in [false, true] {
+        let file = out(data.clone(), Code::Jis, compress);
+        let srv = start(Test::default(), opts.clone());
+        send_part_and_vanish(srv.addr, &file, 2);
+        assert!(srv.t.join().unwrap().is_err());
+        assert!(srv.h.lock().unwrap().received.is_empty(), "途中で切れたファイルは確定しない");
+        assert_eq!(lock(opts.resume.as_ref().unwrap()).len(), 1, "受けた分を覚えている");
+
+        // 2 回目は、二次局が「3 から」の再送要求を返し、一次局は 3 だけ送る (応じる側の動作は
+        // primary_resumes_when_start_is_answered_with_resend_request で、返す側の番号は次の試験で確かめる)
+        let srv2 = start(Test::default(), opts.clone());
+        let o = Opts::default();
+        send_file(connect(srv2.addr, &o), &client_cfg(), &Clock::default(), &file, &o).unwrap();
+        srv2.t.join().unwrap().unwrap();
+        assert_eq!(srv2.h.lock().unwrap().received[0].data, data);
+        assert!(lock(opts.resume.as_ref().unwrap()).is_empty());
+    }
+}
+
+#[test]
+fn resume_falls_back_to_a_fresh_start_if_the_peer_cannot_continue() {
+    // 相手が続きからの再送に対応せず切ったら、次は普通の開始回答を返す (いつまでも失敗し続けないように)
+    use zengin::control::{OPEN_REQ, RETRY_REQ, START_REQ};
+    use zengin::sublayer::Link;
+    let opts = resume_opts();
+    let file = out(sogo_file(38, Code::Jis), Code::Jis, false);
+    let srv = start(Test::default(), opts.clone());
+    send_part_and_vanish(srv.addr, &file, 1);
+    let _ = srv.t.join();
+
+    // 再送要求を受けたら何もせずに切る一次局
+    let srv2 = start(Test::default(), opts.clone());
+    let mut link = Link::new(TcpStream::connect(srv2.addr).unwrap(), 0);
+    raw::send_ctl(&mut link, &raw::comm(OPEN_REQ, 0).encode());
+    raw::recv_comm(&mut link);
+    let f = FileCtl::new(START_REQ, file.name, client_cfg().key, 120, false);
+    raw::send_ctl(&mut link, &f.encode());
+    let r = raw::recv_file(&mut link);
+    assert_eq!((r.kind, r.from), (RETRY_REQ, 2));
+    drop(link);
+    let _ = srv2.t.join();
+    assert!(
+        lock(opts.resume.as_ref().unwrap()).is_empty(),
+        "進まなかったので、覚えていた分は捨てた"
+    );
+
+    let srv3 = start(Test::default(), opts.clone());
+    send_file(
+        connect(srv3.addr, &Opts::default()),
+        &client_cfg(),
+        &Clock::default(),
+        &file,
+        &Opts::default(),
+    )
+    .unwrap();
+    srv3.t.join().unwrap().unwrap();
+    assert_eq!(srv3.h.lock().unwrap().received[0].data, file.data);
 }

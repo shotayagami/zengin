@@ -5,10 +5,11 @@ use crate::control::*;
 use crate::handler::{Handler, InFile, OutFile, PeerCfg};
 use crate::sublayer::Link;
 use crate::text::{TTC_LEN, build_control, parse_data, parse_ttc, texts_for};
-use crate::util::{Clock, Result, ZError, proto};
-use std::collections::BTreeMap;
+use crate::util::{Clock, Result, ZError, lock, proto};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 再送要求を受けて再送する回数の上限。
@@ -26,6 +27,21 @@ pub struct Opts {
     pub max_file: usize,
     /// 待ち受け側の1接続の全体の時間の上限。1バイトずつ遅く送り続ける相手を切るため
     pub max_session: Duration,
+    /// 二次局: 連絡モードで途中まで受けたファイルを覚えておき、接続し直した相手の開始要求に、続きからの再送要求を返す
+    /// (仕様書48〜49頁)。None なら使わない (相手は最初から送り直す)。接続をまたいで共有するので、同じ値を clone して渡す
+    pub resume: Option<Partials>,
+}
+
+/// 途中まで受けたファイル (二次局、連絡モード)。キーは (相手の名前, ファイル名)。
+pub type Partials = Arc<Mutex<HashMap<(String, [u8; 12]), Partial>>>;
+
+/// 途中まで受けたファイルのテキスト。
+#[derive(Clone, Debug)]
+pub struct Partial {
+    pub rec_len: u16,
+    pub compress: bool,
+    /// テキスト番号 → レコード部 (圧縮していれば復元したもの)
+    pub texts: BTreeMap<u16, Vec<u8>>,
 }
 
 impl Default for Opts {
@@ -36,6 +52,7 @@ impl Default for Opts {
             drop_text: None,
             max_file: 16 << 20,
             max_session: Duration::from_secs(300),
+            resume: None,
         }
     }
 }
@@ -237,15 +254,16 @@ fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile
 
 /// データ電文を終了要求まで受け取る。テキスト番号の飛びがあれば再送要求を返す。
 /// 件数が合い、`validate` も通れば終了回答(OK)を返してファイルを返す。
+/// `texts` は、すでに受けているテキスト (接続し直して続きから受けるとき)。途中で失敗しても、受けた分が残る。
 fn recv_data<S: Read + Write>(
     link: &mut Link<S>,
     expect: &FileCtl,
+    texts: &mut BTreeMap<u16, Vec<u8>>,
     validate: &mut dyn FnMut(&InFile) -> std::result::Result<(), u8>,
     max_bytes: usize,
 ) -> Result<InFile> {
     let rec_len = expect.rec_len as usize;
-    let mut texts: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
-    let mut total = 0usize;
+    let mut total: usize = texts.values().map(Vec::len).sum();
     let mut retries = 0;
     // 終了回答のテキスト数・レコード数は、申告された値ではなく、受信して数えた値を返す
     let rsp = |kind: u8, result: u8, texts: u16, records: u32| {
@@ -289,7 +307,7 @@ fn recv_data<S: Read + Write>(
                     total = 0;
                     continue;
                 }
-                let data: Vec<u8> = texts.values().flatten().copied().collect();
+                let data: Vec<u8> = std::mem::take(texts).into_values().flatten().collect();
                 if (data.len() / rec_len) as u32 != e.records {
                     send_fctl(link, &rsp(END_RSP, RECORD_COUNT_ERR, got_t, got_r))?;
                     return rejected(RECORD_COUNT_ERR, "終了要求のレコード数が不一致");
@@ -402,7 +420,7 @@ fn fetch_one<S: Read + Write>(
         // 再送要求 (全ファイル) には開始回答が返らず、データ電文から来る。送るファイルがないときだけ開始回答が来る
         (req.kind, req.from, req.to) = (RETRY_REQ, 1, 0xFFFF);
         send_fctl(link, &req)?;
-        recv_data(link, &req, &mut |_| Ok(()), opts.max_file)
+        recv_data(link, &req, &mut BTreeMap::new(), &mut |_| Ok(()), opts.max_file)
     } else {
         send_fctl(link, &req)?;
         match recv_msg(link, false)? {
@@ -410,7 +428,7 @@ fn fetch_one<S: Read + Write>(
             Msg::File(r) if r.kind == START_RSP && r.rec_len as usize != rec_len => {
                 proto(format!("開始回答のレコード長が期待と違う: {}", r.rec_len))
             }
-            Msg::File(r) if r.kind == START_RSP => recv_data(link, &r, &mut |_| Ok(()), opts.max_file),
+            Msg::File(r) if r.kind == START_RSP => recv_data(link, &r, &mut BTreeMap::new(), &mut |_| Ok(()), opts.max_file),
             _ => proto("開始回答を待っているのに別の電文が来た"),
         }
     };
@@ -513,9 +531,44 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<
                     return rejected(code, "開始要求を拒否した");
                 }
                 if mode == 0 {
-                    send_fctl(&mut link, &rsp)?;
-                    let file = recv_data(&mut link, &f, &mut |inf| h.validate_recv(&peer, inf), opts.max_file)?;
-                    received.extend(Some(file).filter(|f| !f.data.is_empty()));
+                    let key = (peer.name.clone(), f.name);
+                    let mut texts = BTreeMap::new();
+                    // 前回この相手から同じファイルを途中まで受けていれば、続きからの再送要求を開始回答の代わりに返す
+                    let partial = opts.resume.as_ref().and_then(|p| lock(p).remove(&key));
+                    match partial.filter(|p| p.rec_len == f.rec_len && p.compress == f.compress && p.texts.contains_key(&1)) {
+                        Some(p) => {
+                            let next = (1..=u16::MAX).find(|s| !p.texts.contains_key(s)).unwrap_or(u16::MAX);
+                            texts = p.texts;
+                            texts.retain(|s, _| *s < next); // 続きから受けるので、途切れた先の分は捨てる
+                            let mut r = rsp.clone();
+                            (r.kind, r.from, r.to) = (RETRY_REQ, next, 0xFFFF);
+                            send_fctl(&mut link, &r)?;
+                        }
+                        None => send_fctl(&mut link, &rsp)?,
+                    }
+                    let before = texts.len();
+                    match recv_data(&mut link, &f, &mut texts, &mut |inf| h.validate_recv(&peer, inf), opts.max_file) {
+                        Ok(file) => received.extend(Some(file).filter(|f| !f.data.is_empty())),
+                        Err(e) => {
+                            // 回線が切れた場合だけ、受けた分を残す。この接続で1つも進まなかったら残さない
+                            // (相手が続きからの再送に対応していないとき、次は最初から受け直せるように)
+                            if let (Some(p), ZError::Io(_)) = (&opts.resume, &e) {
+                                if texts.len() > before {
+                                    let mut p = lock(p);
+                                    p.retain(|(name, _), _| *name != key.0); // 相手ごとに1つだけ持つ
+                                    p.insert(
+                                        key,
+                                        Partial {
+                                            rec_len: f.rec_len,
+                                            compress: f.compress,
+                                            texts,
+                                        },
+                                    );
+                                }
+                            }
+                            return Err(e);
+                        }
+                    }
                 } else if sent.iter().any(|o| name_kind(&o.name) == name_kind(&f.name)) {
                     // 同じ接続で同じ種類のファイルを2度求められても、確定前の同じ内容を2度渡さない
                     rsp.result = NO_FILE;

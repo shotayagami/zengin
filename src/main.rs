@@ -22,11 +22,12 @@ const USAGE: &str = "\
                  [--fetch OUT] [--mn N]   (--file を重ねると1回の接続で続けて送る。--fetch で同じ接続で振込入金通知も取る)
     zengin fetch --conf FILE --out FILE [--to ADDR] [--cycle N] [--resend] [--mn N]
   銀行ノード:
-    zengin bank serve     --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N]
+    zengin bank serve     --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N] [--resume]
     zengin bank statement --conf FILE --data DIR
     zengin bank recall    --data DIR 取扱番号
   全銀ネット:
-    zengin net serve  --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N]
+    zengin net serve  --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N] [--resume]
+                      (--resume: 途中で切れた受信を、接続し直したときに続きから受ける)
     zengin net report --conf FILE --data DIR
     zengin net settle --data DIR [--offline --conf FILE]
 ";
@@ -38,7 +39,7 @@ struct Args {
 
 impl Args {
     fn parse(v: &[String]) -> Result<Args> {
-        const SWITCHES: [&str; 3] = ["compress", "offline", "resend"];
+        const SWITCHES: [&str; 4] = ["compress", "offline", "resend", "resume"];
         let (mut flags, mut pos) = (HashMap::<String, Vec<String>>::new(), Vec::new());
         let mut it = v.iter();
         while let Some(a) = it.next() {
@@ -77,6 +78,7 @@ impl Args {
     fn opts(&self) -> Result<Opts> {
         Ok(Opts {
             mn: self.num("mn", 3u8)?.min(15),
+            resume: self.has("resume").then(Default::default),
             ..Opts::default()
         })
     }
