@@ -122,7 +122,8 @@ pub struct BankState {
     counter: u64,
     next_notice_id: u64,
     inquiry: u64,
-    cycles: HashMap<String, u8>,
+    /// ファイル名のサイクル: 送る相手と業務 → (日付 YYYYMMDD, その日に最後に使ったサイクル)。日が変わったら 01 から
+    cycles: HashMap<String, (String, u8)>,
     /// 振込入金通知として渡している途中の通知: 企業 → [(渡したファイルの指紋, 通知の識別子)]。
     /// 同じ企業が同時に照会しても、閉局まで終わったファイルに入っていた通知だけを通知済みにする
     inflight: HashMap<String, Vec<(u64, Vec<u64>)>>,
@@ -413,8 +414,12 @@ impl BankState {
                 ["handling", c] if c.parse::<u64>().is_ok() => self.counter = c.parse().unwrap(),
                 ["notice_id", c] if c.parse::<u64>().is_ok() => self.next_notice_id = c.parse().unwrap(),
                 ["inquiry", c] if c.parse::<u64>().is_ok() => self.inquiry = c.parse().unwrap(),
+                // 日付のない古い形式は、次に使うときに 01 から数え直す
                 ["cycle", name, c] if c.parse::<u8>().is_ok() => {
-                    self.cycles.insert(name.into(), c.parse().unwrap());
+                    self.cycles.insert(name.into(), (String::new(), c.parse().unwrap()));
+                }
+                ["cycle", name, c, d] if c.parse::<u8>().is_ok() => {
+                    self.cycles.insert(name.into(), (d.into(), c.parse().unwrap()));
                 }
                 _ => return corrupt("meta.tsv", &l),
             }
@@ -494,10 +499,10 @@ impl BankState {
             format!("notice_id\t{}", self.next_notice_id),
             format!("inquiry\t{}", self.inquiry),
         ];
-        meta.extend(self.cycles.iter().map(|(k, v)| format!("cycle\t{k}\t{v}")));
+        meta.extend(self.cycles.iter().map(|(k, (d, c))| format!("cycle\t{k}\t{c}\t{d}")));
         let hex = |d: &Vec<u8>| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
         let last: Vec<String> = self.last_notice.iter().map(|(k, d)| format!("{k}\t{}", hex(d))).collect();
-        for (name, lines) in [
+        let mut parts = vec![
             ("accounts.tsv", accounts),
             ("outq.tsv", outq),
             ("notices.tsv", notices),
@@ -507,15 +512,11 @@ impl BankState {
             ("files.tsv", files),
             ("meta.tsv", meta),
             ("lastnotice.tsv", last),
-        ] {
-            if let Err(e) = self.store.write(name, &lines) {
-                eprintln!("[{WHO}] {name} の保存に失敗: {e}");
-            }
-        }
-        for (name, lines) in self.biz_files() {
-            if let Err(e) = self.store.write(name, &lines) {
-                eprintln!("[{WHO}] {name} の保存に失敗: {e}");
-            }
+        ];
+        parts.extend(self.biz_files());
+        // 1つのファイルにまとめて置き換える。途中で落ちても、一部だけ書けた状態は残らない
+        if let Err(e) = self.store.write_snapshot(&parts) {
+            eprintln!("[{WHO}] 状態の保存に失敗: {e}");
         }
     }
 
@@ -569,6 +570,22 @@ impl BankState {
     /// 企業のファイルの重複判定に使う指紋 (企業、ファイル名とデータ)。
     fn file_fp(&self, company: &str, f: &InFile) -> String {
         format!("{company}\t{:016x}", fingerprint(&[&f.name, &f.data]))
+    }
+
+    /// 次に使うサイクル (01〜99)。その日の最初なら 01。
+    fn peek_cycle(&self, key: &str) -> u8 {
+        let today = self.clock.now().ymd();
+        match self.cycles.get(key) {
+            Some((d, c)) if *d == today => c % 99 + 1,
+            _ => 1,
+        }
+    }
+
+    /// 次のサイクルを使ったことにして、返す。
+    fn take_cycle(&mut self, key: &str) -> u8 {
+        let c = self.peek_cycle(key);
+        self.cycles.insert(key.to_string(), (self.clock.now().ymd(), c));
+        c
     }
 
     /// 受信済みの記録のうち、保持する期間を過ぎたものを捨てる。
@@ -1001,7 +1018,7 @@ impl BankState {
         if flights.len() > MAX_INFLIGHT {
             flights.remove(0); // 途中で終わった照会の分。通知は消さずに残っているので、次の照会でまた渡す
         }
-        let cycle = self.cycles.get(&company.name).copied().unwrap_or(0) % 99 + 1;
+        let cycle = self.peek_cycle(&company.name);
         Ok(Some(OutFile {
             name: make_name("5020", "0001", cycle),
             rec_len: f.rec_len,
@@ -1168,8 +1185,7 @@ impl Handler for BankState {
             self.last_notice.insert(peer.name.clone(), f.data.clone());
             // 件数ではなく識別子で消す。取得が重なっても、渡していない通知は消えない
             self.notices.retain(|x| !(x.company == peer.name && ids.contains(&x.id)));
-            let c = self.cycles.entry(peer.name.clone()).or_insert(0);
-            *c = *c % 99 + 1;
+            self.take_cycle(&peer.name);
             self.log(&format!("{}: 振込入金通知 {} 件を通知済みにした", peer.name, ids.len()));
             self.save();
         }
@@ -1198,9 +1214,7 @@ pub fn flush_to_net(state: &Mutex<BankState>, opts: &Opts) -> usize {
         for (data, sent_items) in files {
             let cycle = {
                 let mut s = lock(state);
-                let c = s.cycles.entry(format!("net{}", fm.type_code)).or_insert(0);
-                *c = *c % 99 + 1;
-                *c
+                s.take_cycle(&format!("net{}", fm.type_code))
             };
             let file = OutFile {
                 name: make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle),

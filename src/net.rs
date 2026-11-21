@@ -62,8 +62,11 @@ pub struct NetState {
     pub ledger: Vec<Entry>,
     outq: BTreeMap<u16, Vec<Item>>,
     seen: BTreeSet<(u16, u64, u8)>,
+    /// その日の清算の回数と、その日付。日が変わったら 1 から数える
     settle_no: u32,
-    cycles: HashMap<(u16, u8), u8>,
+    settle_date: String,
+    /// ファイル名のサイクル: (銀行, 種別) → (日付, その日に最後に使ったサイクル)。日が変わったら 01 から
+    cycles: HashMap<(u16, u8), (String, u8)>,
     /// 清算前の差額決済の仕向超過額 (支払い − 受取り)。仕訳から作り直せる集計値
     exposure: BTreeMap<u16, i64>,
     /// 振込 (種別91) の仕訳の位置: (仕向, 被仕向, 取扱番号) → ledger の添字
@@ -117,6 +120,7 @@ impl NetState {
             outq: BTreeMap::new(),
             seen: BTreeSet::new(),
             settle_no: 0,
+            settle_date: String::new(),
             cycles: HashMap::new(),
             exposure: BTreeMap::new(),
             index: HashMap::new(),
@@ -198,6 +202,10 @@ impl NetState {
         for l in self.store.lines("meta.tsv")? {
             match l.split('\t').collect::<Vec<_>>()[..] {
                 ["settle", n] if n.parse::<u32>().is_ok() => self.settle_no = n.parse().unwrap(),
+                ["settle", n, d] if n.parse::<u32>().is_ok() => {
+                    self.settle_no = n.parse().unwrap();
+                    self.settle_date = d.into();
+                }
                 _ => return corrupt("meta.tsv", &l),
             }
         }
@@ -229,15 +237,15 @@ impl NetState {
             .flat_map(|(b, v)| v.iter().map(move |i| format!("{b}\t{}", i.to_line())))
             .collect();
         let seen: Vec<String> = self.seen.iter().map(|(a, b, c)| format!("{a}\t{b}\t{c}")).collect();
-        for (name, lines) in [
+        let parts = [
             ("ledger.tsv", ledger),
             ("outq.tsv", outq),
             ("seen.tsv", seen),
-            ("meta.tsv", vec![format!("settle\t{}", self.settle_no)]),
-        ] {
-            if let Err(e) = self.store.write(name, &lines) {
-                eprintln!("[{WHO}] {name} の保存に失敗: {e}");
-            }
+            ("meta.tsv", vec![format!("settle\t{}\t{}", self.settle_no, self.settle_date)]),
+        ];
+        // 1つのファイルにまとめて置き換える。途中で落ちても、一部だけ書けた状態は残らない
+        if let Err(e) = self.store.write_snapshot(&parts) {
+            eprintln!("[{WHO}] 状態の保存に失敗: {e}");
         }
     }
 
@@ -444,9 +452,13 @@ impl NetState {
     }
 
     fn next_cycle(&mut self, bank: u16, kind: FileKind) -> u8 {
-        let c = self.cycles.entry((bank, fmt(kind).type_code as u8)).or_insert(0);
-        *c = *c % 99 + 1;
-        *c
+        let today = self.clock.now().ymd();
+        let c = match self.cycles.get(&(bank, fmt(kind).type_code as u8)) {
+            Some((d, c)) if *d == today => c % 99 + 1,
+            _ => 1,
+        };
+        self.cycles.insert((bank, fmt(kind).type_code as u8), (today, c));
+        c
     }
 
     // ---- 清算 ----
@@ -485,8 +497,11 @@ impl NetState {
         if rows.iter().map(|r| r.net).sum::<i64>() != 0 {
             return proto("清算の差引の合計が 0 にならない (内部の不整合)");
         }
-        self.settle_no += 1;
         let t = self.clock.now();
+        if self.settle_date != t.ymd() {
+            (self.settle_no, self.settle_date) = (0, t.ymd());
+        }
+        self.settle_no += 1;
         let mut text = vec![
             format!("全銀ネット 清算一覧 {}-{:02}-{:02} 第{}回", t.y, t.mo, t.d, self.settle_no),
             String::new(),
