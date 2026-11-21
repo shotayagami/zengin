@@ -1,8 +1,9 @@
 //! 固定長レコードと、ファイル (ヘッダ/データ/トレーラ/エンド) の組み立てと検証。
-//! 業務のレイアウトは別冊 (総合振込、給与振込、振込入金通知)。為替通知 (91〜94) は docs/spec-net.md §3。
+//! 業務のレイアウトは別冊。振込入金通知・給与振込・総合振込はここに、ほかは `formats.rs` (formats/*.json から生成)。
+//! 為替通知 (91〜94) は docs/spec-net.md §3。
 
 use crate::charcode::{Code, decode, encode};
-use crate::util::{Result, proto};
+use crate::util::{Result, ZError, proto};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum K {
@@ -19,10 +20,10 @@ pub struct F {
     pub len: usize,
 }
 
-const fn n(name: &'static str, len: usize) -> F {
+pub(crate) const fn n(name: &'static str, len: usize) -> F {
     F { name, k: K::N, len }
 }
-const fn c(name: &'static str, len: usize) -> F {
+pub(crate) const fn c(name: &'static str, len: usize) -> F {
     F { name, k: K::C, len }
 }
 
@@ -70,6 +71,11 @@ impl Rec {
             .unwrap_or_else(|| panic!("項目がない: {name}"))
     }
 
+    /// このレコードの様式のラベル (`Fmt::datas` のどれか)。
+    pub fn layout_label(&self, f: &Fmt) -> &'static str {
+        f.datas.iter().find(|v| std::ptr::eq(v.layout, self.layout)).map_or("", |v| v.label)
+    }
+
     pub fn has(&self, name: &str) -> bool {
         self.layout.fields.iter().any(|f| f.name == name)
     }
@@ -100,6 +106,8 @@ impl Rec {
             }
             let pad = f.len - v.chars().count();
             let s = match f.k {
+                // 空の値はスペースで埋める (N 項目でも、別冊でスペースを入れる場合がある)
+                K::N if v.is_empty() => " ".repeat(f.len),
                 K::N => {
                     if !v.bytes().all(|b| b.is_ascii_digit()) {
                         return proto(format!("{} が数字でない: {v:?}", f.name));
@@ -123,6 +131,7 @@ impl Rec {
             let s = decode(code, &b[off..off + f.len])?;
             off += f.len;
             vals.push(match f.k {
+                K::N if s.bytes().all(|x| x == b' ') => String::new(),
                 K::N => {
                     if !s.bytes().all(|x| x.is_ascii_digit()) {
                         return proto(format!("{} が数字でない: {s:?}", f.name));
@@ -320,130 +329,310 @@ static EX94_D: Layout = Layout {
 
 // ---- ファイル -------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// 業務。番号は別冊の「Ⅱ 全銀協制定レコード・フォーマット」の番号。為替通知 (Ex91〜Ex94) は独自設計。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FileKind {
-    /// 総合振込 (種別21、連絡)
-    Sogo,
-    /// 給与振込 (種別11、連絡)
-    Kyuyo,
-    /// 振込入金通知 (種別01、照会)
+    /// 1 振込入金通知 (0001、照会)
     Nyukin,
-    /// 為替通知: 91 振込、92 返却、93 組戻依頼、94 組戻不能 (連絡)
+    /// 2 入出金取引明細 (0003、照会)
+    Meisai,
+    /// 3 残高通知 (預金) (0004、照会)
+    Zandaka,
+    /// 4 給与振込 (民間) (0111、連絡)
+    Kyuyo,
+    /// 5 賞与振込 (民間) (0112、連絡)
+    Shoyo,
+    /// 6 給与振込 (地方公務員) (0171、連絡)
+    ChihoKyuyo,
+    /// 7 賞与振込 (地方公務員) (0172、連絡)
+    ChihoShoyo,
+    /// 8 総合振込 (0121、連絡)
+    Sogo,
+    /// 9 株式配当金振込 (0141、連絡)
+    Haito,
+    /// 10 年金信託契約に係る年金・一時金給付金振込 (0143、連絡)
+    NenkinShintaku,
+    /// 11 公的年金保険の年金・一時金給付金振込 (0144、連絡)
+    KotekiNenkin,
+    /// 12 医療保険の給付金振込 (0145、連絡)
+    Iryo,
+    /// 13 振込口座照会 (依頼明細) (0198、連絡)
+    KozaShokai,
+    /// 14 振込口座照会 (処理結果明細) (0199、照会)
+    KozaShokaiKekka,
+    /// 15 預金口座振替 (依頼明細) (0191、連絡)
+    Furikae,
+    /// 16 預金口座振替 (処理結果明細) (0191、照会)
+    FurikaeKekka,
+    /// 17 預金口座振替変更通知 (0193、照会)
+    FurikaeHenko,
+    /// 18 住宅ローン関係 (財形ローン) (0211、照会)
+    LoanZaikei,
+    /// 19 住宅ローン関係 (その他) (0212、照会)
+    LoanSonota,
+    /// 20 財形貯蓄関係 (依頼明細) (0300、連絡)
+    Zaikei,
+    /// 21 財形貯蓄関係 (処理結果明細: 積立内容) (0301、照会)
+    ZaikeiTsumitate,
+    /// 22 財形貯蓄関係 (処理結果明細: 利子補給) (0302、照会)
+    ZaikeiRishi,
+    /// 23 財形貯蓄関係 (処理結果明細: その他) (0309、照会)
+    ZaikeiSonota,
+    /// 24 借入金計算書 (0231、照会)
+    KariireKeisan,
+    /// 25 借入金残高明細 (0232、照会)
+    KariireZandaka,
+    /// 26 借入金残高合計 (0233、照会)
+    KariireGokei,
+    /// 27 外国為替取引明細 (会計性) (0425、照会)
+    FxKaikei,
+    /// 28 外国為替取引明細 (非会計性) (0426、照会)
+    FxHikaikei,
+    /// 29 外国為替関連情報 (0427、照会)
+    FxKanren,
+    /// 30 外国送金依頼 (0435、連絡)
+    Soukin,
+    /// 31 荷為替輸入信用状発行依頼 (0428、連絡)
+    ShinyoJo,
+    /// 32 外貨預金入出金取引明細 (0009、照会)
+    GaikaMeisai,
+    /// 為替通知: 91 振込、92 返却、93 組戻依頼、94 組戻不能 (連絡、独自設計)
     Ex91,
     Ex92,
     Ex93,
     Ex94,
 }
 
+/// データ・レコードの様式の1つと、その選び方。条件はすべて満たしたときに、この様式とみなす。
+/// 値は数として比べる (前ゼロは無視)。
+pub struct Var {
+    pub label: &'static str,
+    pub layout: &'static Layout,
+    /// データ・レコード区分 (`record_kind`) の値。空なら問わない
+    pub kinds: &'static [&'static str],
+    /// 直前のヘッダーの項目の値
+    pub header: Option<(&'static str, &'static [&'static str])>,
+    /// 同じグループで先に出たデータ・レコードの項目の値 (例: 本体情報のデータ構成区分)
+    pub ctx: Option<(&'static str, &'static [&'static str])>,
+}
+
+/// トレーラの項目の求め方。
+pub enum Agg {
+    /// データ・レコードの件数
+    Count,
+    /// データ・レコードのこの項目の合計 (項目がない様式は 0)
+    Sum(&'static str),
+}
+
+/// トレーラの集計項目。`when` の条件 (項目, 等しいか, 値) をすべて満たすデータ・レコードだけを数える。
+pub struct Check {
+    pub field: &'static str,
+    pub agg: Agg,
+    pub when: &'static [(&'static str, bool, &'static str)],
+}
+
 pub struct Fmt {
     pub kind: FileKind,
+    pub title: &'static str,
     pub rec_len: usize,
     /// ヘッダの種別コード
     pub type_code: u64,
     /// ファイル名の産業別コード + データコード (8文字)
     pub name_kind: &'static str,
-    header: &'static Layout,
-    data: &'static Layout,
-    trailer: &'static Layout,
-    end: &'static Layout,
+    /// 照会モードの業務か (でなければ連絡モード)
+    pub inquiry: bool,
+    pub header: &'static Layout,
+    pub datas: &'static [Var],
+    pub trailer: &'static Layout,
+    pub end: &'static Layout,
+    pub checks: &'static [Check],
 }
+
+const fn single(layout: &'static Layout) -> [Var; 1] {
+    [Var {
+        label: "",
+        layout,
+        kinds: &[],
+        header: None,
+        ctx: None,
+    }]
+}
+
+static SOGO_V: [Var; 1] = single(&SOGO_D);
+static KYUYO_V: [Var; 1] = single(&KYUYO_D);
+static NYUKIN_V: [Var; 1] = single(&NYUKIN_D);
+static EX91_V: [Var; 1] = single(&EX91_D);
+static EX92_V: [Var; 1] = single(&EX92_D);
+static EX93_V: [Var; 1] = single(&EX93_D);
+static EX94_V: [Var; 1] = single(&EX94_D);
+
+const COUNT_AMOUNT: &[Check] = &[
+    Check {
+        field: "count",
+        agg: Agg::Count,
+        when: &[],
+    },
+    Check {
+        field: "amount",
+        agg: Agg::Sum("amount"),
+        when: &[],
+    },
+];
 
 static FMTS: [Fmt; 7] = [
     Fmt {
         kind: FileKind::Sogo,
+        title: "総合振込",
         rec_len: 120,
         type_code: 21,
         name_kind: "50200121",
+        inquiry: false,
         header: &H120,
-        data: &SOGO_D,
+        datas: &SOGO_V,
         trailer: &T120,
         end: &E120,
+        checks: COUNT_AMOUNT,
     },
     Fmt {
         kind: FileKind::Kyuyo,
+        title: "給与振込（民間）",
         rec_len: 120,
         type_code: 11,
         name_kind: "50200111",
+        inquiry: false,
         header: &H120,
-        data: &KYUYO_D,
+        datas: &KYUYO_V,
         trailer: &T120,
         end: &E120,
+        checks: COUNT_AMOUNT,
     },
     Fmt {
         kind: FileKind::Nyukin,
+        title: "振込入金通知",
         rec_len: 200,
         type_code: 1,
         name_kind: "50200001",
+        inquiry: true,
         header: &NYUKIN_H,
-        data: &NYUKIN_D,
+        datas: &NYUKIN_V,
         trailer: &NYUKIN_T,
         end: &E200,
+        // 取消 (取消区分 1) は、合計件数・合計金額に入れず、取消件数・取消金額に入れる
+        checks: &[
+            Check {
+                field: "count",
+                agg: Agg::Count,
+                when: &[("cancel", false, "1")],
+            },
+            Check {
+                field: "amount",
+                agg: Agg::Sum("amount"),
+                when: &[("cancel", false, "1")],
+            },
+            Check {
+                field: "cancel_count",
+                agg: Agg::Count,
+                when: &[("cancel", true, "1")],
+            },
+            Check {
+                field: "cancel_amount",
+                agg: Agg::Sum("amount"),
+                when: &[("cancel", true, "1")],
+            },
+        ],
     },
     Fmt {
         kind: FileKind::Ex91,
+        title: "為替通知 (振込)",
         rec_len: 200,
         type_code: 91,
         name_kind: "90209091",
+        inquiry: false,
         header: &EX_H,
-        data: &EX91_D,
+        datas: &EX91_V,
         trailer: &EX_T,
         end: &E200,
+        checks: COUNT_AMOUNT,
     },
     Fmt {
         kind: FileKind::Ex92,
+        title: "為替通知 (返却)",
         rec_len: 200,
         type_code: 92,
         name_kind: "90209092",
+        inquiry: false,
         header: &EX_H,
-        data: &EX92_D,
+        datas: &EX92_V,
         trailer: &EX_T,
         end: &E200,
+        checks: COUNT_AMOUNT,
     },
     Fmt {
         kind: FileKind::Ex93,
+        title: "為替通知 (組戻依頼)",
         rec_len: 200,
         type_code: 93,
         name_kind: "90209093",
+        inquiry: false,
         header: &EX_H,
-        data: &EX93_D,
+        datas: &EX93_V,
         trailer: &EX_T,
         end: &E200,
+        checks: COUNT_AMOUNT,
     },
     Fmt {
         kind: FileKind::Ex94,
+        title: "為替通知 (組戻不能)",
         rec_len: 200,
         type_code: 94,
         name_kind: "90209094",
+        inquiry: false,
         header: &EX_H,
-        data: &EX94_D,
+        datas: &EX94_V,
         trailer: &EX_T,
         end: &E200,
+        checks: COUNT_AMOUNT,
     },
 ];
 
+/// すべての業務のフォーマット。
+pub fn all() -> impl Iterator<Item = &'static Fmt> {
+    FMTS.iter().chain(crate::formats::GENERATED.iter())
+}
+
 pub fn fmt(kind: FileKind) -> &'static Fmt {
-    FMTS.iter().find(|f| f.kind == kind).unwrap()
+    all().find(|f| f.kind == kind).unwrap()
 }
 
-/// ファイル名の識別部 (8文字) から業務を引く。
+/// ファイル名の識別部 (8文字) から業務を引く。同じデータコードで連絡と照会がある業務 (預金口座振替 0191) は、連絡の方を返す。
 pub fn kind_from_name(name_kind: &str) -> Option<&'static Fmt> {
-    FMTS.iter().find(|f| f.name_kind == name_kind)
+    kind_from_name_mode(name_kind, false).or_else(|| kind_from_name_mode(name_kind, true))
 }
 
-/// データレコードの (件数, 金額, 取消の件数, 取消の金額)。`cancel` 項目が 1 の行は取消として別に数える。
-fn tally(data: &[Rec]) -> (u64, u64, u64, u64) {
-    let (mut c, mut a, mut cc, mut ca) = (0, 0, 0, 0);
-    for d in data {
-        let amt = if d.has("amount") { d.num("amount") } else { 0 };
-        if d.has("cancel") && d.num("cancel") == 1 {
-            cc += 1;
-            ca += amt;
-        } else {
-            c += 1;
-            a += amt;
-        }
+/// ファイル名の識別部とモード (照会か) から業務を引く。
+pub fn kind_from_name_mode(name_kind: &str, inquiry: bool) -> Option<&'static Fmt> {
+    all().find(|f| f.name_kind == name_kind && f.inquiry == inquiry)
+}
+
+/// 数字なら数として、でなければ文字列として比べる (前ゼロの違いを無視するため)。
+fn same(a: &str, b: &str) -> bool {
+    match (a.parse::<u64>(), b.parse::<u64>()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
     }
-    (c, a, cc, ca)
+}
+
+fn matches(r: &Rec, when: &[(&str, bool, &str)]) -> bool {
+    when.iter().all(|(f, eq, v)| (r.has(f) && same(r.get(f), v)) == *eq)
+}
+
+/// トレーラの集計項目の値を、データ・レコードから求める。
+fn aggregate(c: &Check, data: &[Rec]) -> u64 {
+    let rows = data.iter().filter(|d| matches(d, c.when));
+    match c.agg {
+        Agg::Count => rows.count() as u64,
+        Agg::Sum(f) => rows.filter(|d| d.has(f)).map(|d| d.num(f)).sum(),
+    }
 }
 
 /// 人名・店舗名の欄に使える文字か (別冊 付録1 の注1): カナ(ヲと小文字を除く)、濁点、半濁点、英大文字、数字、スペース、`( ) - .`。
@@ -454,48 +643,117 @@ pub fn name_chars_ok(s: &str) -> bool {
     })
 }
 
-pub struct Parsed {
-    pub code: Code,
+/// ヘッダー・データ・トレーラの1組。1ファイルに複数の組があってよい (口座ごとの入出金取引明細など)。
+#[derive(Clone, Debug)]
+pub struct Group {
     pub header: Rec,
     pub data: Vec<Rec>,
     pub trailer: Rec,
+}
+
+pub struct Parsed {
+    pub code: Code,
+    /// 最初の組のヘッダー
+    pub header: Rec,
+    /// すべての組のデータ・レコード
+    pub data: Vec<Rec>,
+    /// 最初の組のトレーラ
+    pub trailer: Rec,
+    pub groups: Vec<Group>,
+    pub end: Rec,
 }
 
 impl Fmt {
     pub fn new_header(&self) -> Rec {
         Rec::new(self.header)
     }
+    /// 最初の様式のデータ・レコード。
     pub fn new_data(&self) -> Rec {
-        Rec::new(self.data)
+        Rec::new(self.datas[0].layout)
+    }
+    /// ラベルの様式のデータ・レコード。
+    pub fn new_data_of(&self, label: &str) -> Option<Rec> {
+        self.datas.iter().find(|v| v.label == label).map(|v| Rec::new(v.layout))
     }
 
-    /// ヘッダとデータからファイルを作る。データ区分、種別、コード区分、トレーラの件数・金額、エンドは自動で設定する。
+    /// ヘッダとデータからファイルを作る (1組)。
     pub fn build(&self, code: Code, header: Rec, data: &[Rec]) -> Result<Vec<u8>> {
-        let mut out = header
-            .set_num("data_kind", 1)
-            .set_num("type", self.type_code)
-            .set_num("code", code.digit() as u64)
-            .encode(code)?;
-        for d in data {
-            if !std::ptr::eq(d.layout, self.data) {
-                return proto("データレコードの種類が違う");
+        self.build_groups(code, &[(header, data.to_vec())])
+    }
+
+    /// 複数の組からファイルを作る。データ区分、種別、コード区分、トレーラの集計項目、エンドは自動で設定する。
+    pub fn build_groups(&self, code: Code, groups: &[(Rec, Vec<Rec>)]) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        for (header, data) in groups {
+            if !std::ptr::eq(header.layout, self.header) {
+                return proto("ヘッダー・レコードの種類が違う");
             }
-            out.extend(d.clone().set_num("data_kind", 2).encode(code)?);
+            out.extend(
+                header
+                    .clone()
+                    .set_num("data_kind", 1)
+                    .set_num("type", self.type_code)
+                    .set_num("code", code.digit() as u64)
+                    .encode(code)?,
+            );
+            for d in data {
+                if !self.datas.iter().any(|v| std::ptr::eq(d.layout, v.layout)) {
+                    return proto("データレコードの種類が違う");
+                }
+                out.extend(d.clone().set_num("data_kind", 2).encode(code)?);
+            }
+            let mut t = Rec::new(self.trailer).set_num("data_kind", 8);
+            for c in self.checks {
+                t = t.set_num(c.field, aggregate(c, data));
+            }
+            out.extend(t.encode(code)?);
         }
-        let (count, amount, cancel_count, cancel_amount) = tally(data);
-        let mut t = Rec::new(self.trailer)
-            .set_num("data_kind", 8)
-            .set_num("count", count)
-            .set_num("amount", amount);
-        if t.has("cancel_count") {
-            t = t.set_num("cancel_count", cancel_count).set_num("cancel_amount", cancel_amount);
+        let mut e = Rec::new(self.end).set_num("data_kind", 9);
+        // エンドに件数がある様式: レコード総件数 (エンド自身を含む) と、組 (口座) の数
+        let total = (out.len() / self.rec_len + 1) as u64;
+        for f in ["total_records", "total_record_count", "total_count"] {
+            if e.has(f) {
+                e = e.set_num(f, total);
+            }
         }
-        out.extend(t.encode(code)?);
-        out.extend(Rec::new(self.end).set_num("data_kind", 9).encode(code)?);
+        for f in ["acct_count", "account_count"] {
+            if e.has(f) {
+                e = e.set_num(f, groups.len() as u64);
+            }
+        }
+        out.extend(e.encode(code)?);
         Ok(out)
     }
 
-    /// ファイルを解析し、順序、種別、件数、合計金額を検査する。
+    /// データ・レコードの様式を選んで読む。
+    fn decode_data(&self, raw: &[u8], code: Code, header: &Rec, prev: &[Rec]) -> Result<Rec> {
+        let mut last_err = None;
+        for v in self.datas {
+            let r = match Rec::decode(v.layout, raw, code) {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(e);
+                    continue;
+                }
+            };
+            let kind_ok = v.kinds.is_empty() || (r.has("record_kind") && v.kinds.iter().any(|k| same(r.get("record_kind"), k)));
+            let header_ok = v
+                .header
+                .is_none_or(|(f, vals)| header.has(f) && vals.iter().any(|x| same(header.get(f), x)));
+            let ctx_ok = v.ctx.is_none_or(|(f, vals)| {
+                prev.iter()
+                    .rev()
+                    .find(|p| p.has(f))
+                    .is_some_and(|p| vals.iter().any(|x| same(p.get(f), x)))
+            });
+            if kind_ok && header_ok && ctx_ok {
+                return Ok(r);
+            }
+        }
+        Err(last_err.unwrap_or_else(|| ZError::Protocol("データ・レコードの様式が決まらない".into())))
+    }
+
+    /// ファイルを解析し、順序、種別、トレーラの集計項目を検査する。
     pub fn parse(&self, b: &[u8]) -> Result<Parsed> {
         if b.is_empty() || b.len() % self.rec_len != 0 || b.len() / self.rec_len < 3 {
             return proto(format!("ファイル長が不正: {} バイト (レコード長 {})", b.len(), self.rec_len));
@@ -506,42 +764,47 @@ impl Fmt {
             x => return proto(format!("先頭のデータ区分が不正: 0x{x:02X}")),
         };
         let recs: Vec<&[u8]> = b.chunks(self.rec_len).collect();
-        let header = Rec::decode(self.header, recs[0], code)?;
-        if header.num("data_kind") != 1 || header.num("type") != self.type_code || header.num("code") != code.digit() as u64 {
-            return proto("ヘッダの種別/コード区分が不正");
-        }
-        let last = recs.len() - 1;
-        let end = Rec::decode(self.end, recs[last], code)?;
-        if end.num("data_kind") != 9 {
-            return proto("エンド・レコードがない");
-        }
-        let trailer = Rec::decode(self.trailer, recs[last - 1], code)?;
-        if trailer.num("data_kind") != 8 {
-            return proto("トレーラ・レコードがない");
-        }
-        let mut data = Vec::new();
-        for r in &recs[1..last - 1] {
-            let d = Rec::decode(self.data, r, code)?;
-            if d.num("data_kind") != 2 {
-                return proto("データ・レコードのデータ区分が不正");
+        let kind_of = |r: &[u8]| decode(code, &r[..1]).unwrap_or_default();
+        let mut groups = Vec::new();
+        let mut i = 0;
+        while i < recs.len() && kind_of(recs[i]) == "1" {
+            let header = Rec::decode(self.header, recs[i], code)?;
+            if header.num("type") != self.type_code || header.num("code") != code.digit() as u64 {
+                return proto("ヘッダの種別/コード区分が不正");
             }
-            data.push(d);
+            i += 1;
+            let mut data = Vec::new();
+            while i < recs.len() && kind_of(recs[i]) == "2" {
+                data.push(self.decode_data(recs[i], code, &header, &data)?);
+                i += 1;
+            }
+            if i >= recs.len() || kind_of(recs[i]) != "8" {
+                return proto("トレーラ・レコードがない");
+            }
+            let trailer = Rec::decode(self.trailer, recs[i], code)?;
+            i += 1;
+            for c in self.checks {
+                let want = aggregate(c, &data);
+                if trailer.num(c.field) != want {
+                    return proto(format!("トレーラの {} が不一致: {} (実際 {want})", c.field, trailer.num(c.field)));
+                }
+            }
+            groups.push(Group { header, data, trailer });
         }
-        let (count, amount, cancel_count, cancel_amount) = tally(&data);
-        if trailer.num("count") != count {
-            return proto(format!("トレーラの合計件数が不一致: {} (実際 {count})", trailer.num("count")));
+        if groups.is_empty() {
+            return proto("ヘッダー・レコードがない");
         }
-        if trailer.num("amount") != amount {
-            return proto(format!("トレーラの合計金額が不一致: {} (実際 {amount})", trailer.num("amount")));
+        if i != recs.len() - 1 || kind_of(recs[i]) != "9" {
+            return proto("エンド・レコードがない、またはエンドのあとにレコードがある");
         }
-        if trailer.has("cancel_count") && (trailer.num("cancel_count") != cancel_count || trailer.num("cancel_amount") != cancel_amount) {
-            return proto("トレーラの取消の件数/金額が不一致");
-        }
+        let end = Rec::decode(self.end, recs[i], code)?;
         Ok(Parsed {
             code,
-            header,
-            data,
-            trailer,
+            header: groups[0].header.clone(),
+            data: groups.iter().flat_map(|g| g.data.clone()).collect(),
+            trailer: groups[0].trailer.clone(),
+            groups,
+            end,
         })
     }
 }
@@ -553,7 +816,7 @@ mod tests {
     #[test]
     fn layouts_have_declared_lengths() {
         for f in &FMTS {
-            for l in [f.header, f.data, f.trailer, f.end] {
+            for l in [f.header, f.trailer, f.end].into_iter().chain(f.datas.iter().map(|v| v.layout)) {
                 assert_eq!(l.len(), f.rec_len, "{:?}", f.kind);
             }
         }
@@ -646,6 +909,46 @@ mod tests {
         let p = f.parse(&b).unwrap();
         assert_eq!(p.data[0].num("handling_no"), 1121000001);
         assert_eq!(p.trailer.num("amount"), 0);
+    }
+
+    /// すべての業務で、すべての様式のデータ・レコードを作って、読み戻せること (様式の選び方とトレーラの集計を含む)。
+    #[test]
+    fn every_format_and_variant_roundtrips() {
+        for f in all() {
+            let mut groups = Vec::new();
+            for v in f.datas {
+                let mut header = f.new_header();
+                if let Some((field, vals)) = v.header {
+                    header = header.set(field, vals[0]);
+                }
+                let mut data = Vec::new();
+                if let Some((field, vals)) = v.ctx {
+                    // 先行レコード (例: 本体情報(1) のデータ構成区分) を先に置く
+                    let lead = f.datas.iter().find(|w| Rec::new(w.layout).has(field)).unwrap();
+                    data.push(Rec::new(lead.layout).set("record_kind", lead.kinds[0]).set(field, vals[0]));
+                }
+                let mut r = Rec::new(v.layout);
+                if !v.kinds.is_empty() {
+                    r = r.set("record_kind", v.kinds[0]);
+                }
+                if r.has("amount") {
+                    r = r.set_num("amount", 1234);
+                }
+                data.push(r.clone());
+                data.push(r);
+                groups.push((header, data));
+            }
+            for code in [Code::Jis, Code::Ebcdic] {
+                let b = f.build_groups(code, &groups).unwrap_or_else(|e| panic!("{:?}: {e}", f.kind));
+                let p = f.parse(&b).unwrap_or_else(|e| panic!("{:?} {code:?}: {e}", f.kind));
+                assert_eq!(p.groups.len(), groups.len(), "{:?}", f.kind);
+                for (g, (_, want)) in p.groups.iter().zip(&groups) {
+                    let got: Vec<&str> = g.data.iter().map(|d| d.layout_label(f)).collect();
+                    let exp: Vec<&str> = want.iter().map(|d| d.layout_label(f)).collect();
+                    assert_eq!(got, exp, "{:?}: 様式の選び方", f.kind);
+                }
+            }
+        }
     }
 
     #[test]

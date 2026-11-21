@@ -8,7 +8,7 @@ use zengin::config::Conf;
 use zengin::control::{CenterCode, make_name};
 use zengin::handler::{InFile, OutFile, PeerCfg};
 use zengin::net::{self, NetState, connect};
-use zengin::record::{FileKind, fmt};
+use zengin::record::{self, FileKind, Fmt, Rec, fmt};
 use zengin::session::{self, Done, Job, Opts, fetch_file};
 use zengin::store::Store;
 use zengin::util::{Clock, Result, ZError, proto};
@@ -16,20 +16,26 @@ use zengin::util::{Clock, Result, ZError, proto};
 const USAGE: &str = "\
 使い方:
   企業:
-    zengin gen sogo|kyuyo --out FILE --client-code N --client-name NAME --bank N [--code jis|ebcdic]
-                          --item 銀行:支店:種目:口座:受取人名:金額 [--item ...]
-    zengin send  --conf FILE --file FILE [--file ...] [--kind sogo|kyuyo] [--to ADDR] [--cycle N] [--compress]
+    zengin gen 業務 --out FILE [--code jis|ebcdic] [--client-code N] [--client-name NAME] [--bank N]
+               [--item 銀行:支店:種目:口座:名前:金額 ...] [--set 項目=値 ...] [--rec 「項目=値;項目=値」 ...]
+               (--item は振込・口座振替・振込口座照会の明細。--set はヘッダー、--rec はデータ・レコード1件)
+    zengin send  --conf FILE --file FILE [--file ...] [--kind 業務] [--to ADDR] [--cycle N] [--compress]
                  [--fetch OUT] [--mn N]   (--file を重ねると1回の接続で続けて送る。--fetch で同じ接続で振込入金通知も取る)
-    zengin fetch --conf FILE --out FILE [--to ADDR] [--cycle N] [--resend] [--mn N]
+    zengin fetch --conf FILE --out FILE [--kind 業務] [--to ADDR] [--cycle N] [--resend] [--mn N]
+    zengin show  --kind 業務 FILE        (ファイルの中身を表示する)
+    zengin kinds                         (業務の一覧)
   銀行ノード:
     zengin bank serve     --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N] [--resume]
     zengin bank statement --conf FILE --data DIR
     zengin bank recall    --data DIR 取扱番号
+    zengin bank publish   --data DIR --company 企業 --kind 業務 --file FILE   (照会で渡すファイルを登録する)
+    zengin bank inbox     --data DIR       (受け付けた外国送金依頼などの一覧)
   全銀ネット:
     zengin net serve  --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N] [--resume]
                       (--resume: 途中で切れた受信を、接続し直したときに続きから受ける)
     zengin net report --conf FILE --data DIR
     zengin net settle --data DIR [--offline --conf FILE]
+  業務: 名前 (sogo、kyuyo、nyukin、meisai など。zengin kinds で一覧) か、データコード 4 桁 (0121 など)。
   共通の通信オプション:
     --text-len N   送るテキスト長の上限 (既定 2048。相手が対応していれば 32767 まで)
     --basic        TTC の接続形態区分を 0 (ベーシック手順、汎用機どうし) にする
@@ -131,12 +137,28 @@ fn cycle(a: &Args) -> Result<u8> {
     Ok(c)
 }
 
+/// 業務の名前 (FileKind の名前を小文字にしたもの)。
+fn kind_name(k: FileKind) -> String {
+    format!("{k:?}").to_lowercase()
+}
+
+/// 業務の名前かデータコードから、フォーマットを引く。`inquiry` で照会か連絡かを決める (同じデータコードの業務があるため)。
+fn kind_by(s: &str, inquiry: bool) -> Result<&'static Fmt> {
+    let s = s.to_lowercase();
+    record::all()
+        .filter(|f| !matches!(f.kind, FileKind::Ex91 | FileKind::Ex92 | FileKind::Ex93 | FileKind::Ex94))
+        .find(|f| (kind_name(f.kind) == s || f.name_kind[4..] == s) && f.inquiry == inquiry)
+        .map_or_else(
+            || {
+                let mode = if inquiry { "照会" } else { "連絡" };
+                proto(format!("{mode}の業務ではない: {s} (zengin kinds で一覧)"))
+            },
+            Ok,
+        )
+}
+
 fn kind_of(a: &Args) -> Result<FileKind> {
-    match a.get("kind").unwrap_or("sogo") {
-        "sogo" => Ok(FileKind::Sogo),
-        "kyuyo" => Ok(FileKind::Kyuyo),
-        k => proto(format!("--kind は sogo か kyuyo: {k}")),
-    }
+    Ok(kind_by(a.get("kind").unwrap_or("sogo"), false)?.kind)
 }
 
 fn code_of(a: &Args) -> Result<Code> {
@@ -147,17 +169,48 @@ fn code_of(a: &Args) -> Result<Code> {
     }
 }
 
-fn cmd_gen(kind: FileKind, a: &Args) -> Result<()> {
-    let f = fmt(kind);
+/// `項目=値` を、レコードの項目に入れる。
+fn set_fields(mut r: Rec, spec: &str, sep: char) -> Result<Rec> {
+    for kv in spec.split(sep).map(str::trim).filter(|s| !s.is_empty()) {
+        let Some((k, v)) = kv.split_once('=') else {
+            return proto(format!("項目=値 の形でない: {kv}"));
+        };
+        if !r.has(k) {
+            let names: Vec<&str> = r.layout.fields.iter().map(|f| f.name).collect();
+            return proto(format!("項目 {k} がない。使える項目: {}", names.join(" ")));
+        }
+        r = r.set(k, v);
+    }
+    Ok(r)
+}
+
+fn cmd_gen(f: &'static Fmt, a: &Args) -> Result<()> {
     let now = Clock::default().now();
-    let h = f
-        .new_header()
-        .set_num("client_code", a.num("client-code", 0u64)?)
-        .set("client_name", a.req("client-name")?)
-        .set("date", now.mmdd())
-        .set_num("bank_no", a.num("bank", 0u64)?);
+    let mut h = f.new_header();
+    let opt = [
+        ("client_code", a.get("client-code")),
+        ("client_name", a.get("client-name")),
+        ("bank_no", a.get("bank")),
+    ];
+    for (k, v) in opt {
+        if let (true, Some(v)) = (h.has(k), v) {
+            h = h.set(k, v);
+        }
+    }
+    // 振込の業務のヘッダーの取組日 (MMDD) は、今日にしておく
+    if h.layout.fields.iter().any(|f| f.name == "date" && f.len == 4) {
+        h = h.set("date", now.mmdd());
+    }
+    for kv in a.all("set") {
+        h = set_fields(h, kv, ',')?;
+    }
     let mut data = Vec::new();
-    for item in a.flags.get("item").map(Vec::as_slice).unwrap_or(&[]) {
+    let items = a.all("item");
+    let item_fields = ["bank_no", "branch_no", "acct_kind", "acct_no", "name", "amount"];
+    if !items.is_empty() && !item_fields.iter().all(|k| f.new_data().has(k)) {
+        return proto(format!("{} には --item を使えない。--rec で項目を指定する", f.title));
+    }
+    for item in items {
         let p: Vec<&str> = item.split(':').collect();
         let [bank, branch, kind_, acct, name, amount] = p[..] else {
             return proto(format!("--item は 銀行:支店:種目:口座:受取人名:金額: {item}"));
@@ -173,7 +226,18 @@ fn cmd_gen(kind: FileKind, a: &Args) -> Result<()> {
                 .set_num("amount", n(amount)?),
         );
     }
+    for spec in a.all("rec") {
+        // データ・レコード区分 (record_kind) の値で様式を選ぶ。指定がなければ最初の様式
+        let kind = spec.split(';').find_map(|kv| kv.trim().strip_prefix("record_kind="));
+        let v = f
+            .datas
+            .iter()
+            .find(|v| kind.is_some_and(|k| v.kinds.iter().any(|x| x.trim_start_matches('0') == k.trim_start_matches('0'))))
+            .unwrap_or(&f.datas[0]);
+        data.push(set_fields(Rec::new(v.layout), spec, ';')?);
+    }
     let bytes = f.build(code_of(a)?, h, &data)?;
+    f.parse(&bytes)?; // 様式の選び方まで含めて、読み戻せること
     io(std::fs::write(a.path("out")?, &bytes))?;
     println!("{} 件、{} バイト", data.len(), bytes.len());
     Ok(())
@@ -232,7 +296,7 @@ fn cmd_send(a: &Args) -> Result<()> {
 fn cmd_fetch(a: &Args) -> Result<()> {
     let conf = Conf::load(&a.path("conf")?)?;
     let cfg = company_cfg(&conf)?;
-    let fm = fmt(FileKind::Nyukin);
+    let fm = kind_by(a.get("kind").unwrap_or("nyukin"), true)?;
     let opts = a.opts()?;
     let addr = a
         .get("to")
@@ -248,7 +312,47 @@ fn cmd_fetch(a: &Args) -> Result<()> {
         a.has("resend"),
         &opts,
     )?;
-    show_notices(file.as_ref(), &a.path("out")?)
+    if fm.kind == FileKind::Nyukin {
+        return show_notices(file.as_ref(), &a.path("out")?);
+    }
+    let Some(file) = file else {
+        println!("{} はない", fm.title);
+        return Ok(());
+    };
+    io(std::fs::write(a.path("out")?, &file.data))?;
+    show(fm, &file.data)
+}
+
+/// ファイルの中身を、組ごとに表示する (値のある項目だけ)。
+fn show(fm: &Fmt, data: &[u8]) -> Result<()> {
+    let p = fm.parse(data)?;
+    let line = |r: &Rec| {
+        let fields = r
+            .layout
+            .fields
+            .iter()
+            .filter(|f| f.name != "data_kind" && !f.name.starts_with("dummy"));
+        let vals = fields.filter_map(|f| {
+            let v = r.get(f.name);
+            // 空と、すべて 0 の項目は省く
+            (!v.trim_start_matches('0').is_empty()).then(|| format!("{}={v}", f.name))
+        });
+        vals.collect::<Vec<_>>().join(" ")
+    };
+    println!("{} ({:?}): {} 組、データ {} 件", fm.title, p.code, p.groups.len(), p.data.len());
+    for g in &p.groups {
+        println!("ヘッダー: {}", line(&g.header));
+        for d in &g.data {
+            let label = d.layout_label(fm);
+            println!(
+                "  {}{}",
+                if label.is_empty() { String::new() } else { format!("[{label}] ") },
+                line(d)
+            );
+        }
+        println!("トレーラ: {}", line(&g.trailer));
+    }
+    Ok(())
 }
 
 /// 受け取った振込入金通知を保存して、内容を表示する。
@@ -321,6 +425,34 @@ fn cmd_bank(sub: &str, a: &Args) -> Result<()> {
             println!("組戻依頼を受け付けた。稼働中の銀行ノードが次の周期で処理する: {n}");
             Ok(())
         }
+        "publish" => {
+            let fm = kind_by(a.req("kind")?, true)?;
+            let data = io(std::fs::read(a.path("file")?))?;
+            fm.parse(&data)?;
+            let company = a.req("company")?;
+            let dir = a.path("data")?;
+            io(std::fs::create_dir_all(&dir))?;
+            let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+            use std::io::Write;
+            let mut f = io(std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("publish-requests.tsv")))?;
+            io(writeln!(f, "{company}\t{}\t{hex}", fm.name_kind))?;
+            println!("{} を {company} 向けに登録した。稼働中の銀行ノードが次の周期で取り込む", fm.title);
+            Ok(())
+        }
+        "inbox" => {
+            let path = a.path("data")?.join("inbox.tsv");
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            if text.is_empty() {
+                println!("受け付けた依頼はない");
+            }
+            for l in text.lines() {
+                println!("{}", l.replace('\t', "  "));
+            }
+            Ok(())
+        }
         _ => proto(format!("bank のサブコマンドが不明: {sub}\n{USAGE}")),
     }
 }
@@ -373,14 +505,33 @@ fn run() -> Result<()> {
     match cmd.as_str() {
         "gen" => {
             let Some(kind) = rest.first() else {
-                return proto("sogo か kyuyo が必要");
+                return proto("業務の名前が必要 (zengin kinds で一覧)");
             };
-            let k = match kind.as_str() {
-                "sogo" => FileKind::Sogo,
-                "kyuyo" => FileKind::Kyuyo,
-                k => return proto(format!("gen の種類が不明: {k}")),
+            let f = kind_by(kind, false).or_else(|_| kind_by(kind, true))?;
+            cmd_gen(f, &Args::parse(&rest[1..])?)
+        }
+        "show" => {
+            let a = Args::parse(rest)?;
+            let Some(path) = a.pos.first() else {
+                return proto("ファイルが必要");
             };
-            cmd_gen(k, &Args::parse(&rest[1..])?)
+            let data = io(std::fs::read(path))?;
+            let k = a.req("kind")?;
+            let f = kind_by(k, true).or_else(|_| kind_by(k, false))?;
+            show(f, &data)
+        }
+        "kinds" => {
+            for f in record::all().filter(|f| !matches!(f.kind, FileKind::Ex91 | FileKind::Ex92 | FileKind::Ex93 | FileKind::Ex94)) {
+                let mode = if f.inquiry { "照会" } else { "連絡" };
+                println!(
+                    "{:<16} {}  {mode}  {:>3}B  {}",
+                    kind_name(f.kind),
+                    &f.name_kind[4..],
+                    f.rec_len,
+                    f.title
+                );
+            }
+            Ok(())
         }
         "send" => cmd_send(&Args::parse(rest)?),
         "fetch" => cmd_fetch(&Args::parse(rest)?),

@@ -30,6 +30,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --check
+      # src/formats.rs が formats/*.json から生成し直したものと同じか
+      - run: python3 scripts/gen-formats.py && cargo fmt && git diff --exit-code src/formats.rs
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo doc --no-deps
         env:

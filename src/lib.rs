@@ -6,6 +6,7 @@ pub mod charcode;
 pub mod config;
 pub mod control;
 pub mod exchange;
+pub mod formats;
 pub mod handler;
 pub mod net;
 pub mod record;

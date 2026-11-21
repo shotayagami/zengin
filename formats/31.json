@@ -1,0 +1,1674 @@
+{
+ "no": 31,
+ "title": "荷為替輸入信用状発行依頼",
+ "data_code": "0428",
+ "type_code": 28,
+ "mode": "連絡",
+ "rec_len": 250,
+ "records": [
+  {
+   "kind": "header",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "1:ヘッダー・レコード"
+    },
+    {
+     "name": "type",
+     "ja": "種別コード",
+     "k": "N",
+     "len": 2,
+     "note": "28:輸入信用状発行依頼"
+    },
+    {
+     "name": "code",
+     "ja": "コード区分",
+     "k": "N",
+     "len": 1,
+     "note": "0:JIS 1:EBCDIC"
+    },
+    {
+     "name": "created_on",
+     "ja": "作成日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD(西暦)"
+    },
+    {
+     "name": "notified_on",
+     "ja": "※連絡日",
+     "k": "N",
+     "len": 8,
+     "note": "任意 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "notify_seq",
+     "ja": "連絡回数",
+     "k": "N",
+     "len": 2,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "bank_code",
+     "ja": "銀行コード",
+     "k": "N",
+     "len": 4,
+     "note": "取扱銀行 統一金融機関番号"
+    },
+    {
+     "name": "bank_name",
+     "ja": "銀行名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "branch_code",
+     "ja": "支店コード",
+     "k": "N",
+     "len": 3,
+     "note": "取扱支店 統一店番号"
+    },
+    {
+     "name": "branch_name",
+     "ja": "支店名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "company_code",
+     "ja": "会社コード",
+     "k": "N",
+     "len": 10,
+     "note": "銀行が採番した取引先の会社コード 右詰め残り前「0」"
+    },
+    {
+     "name": "company_name",
+     "ja": "会社名",
+     "k": "C",
+     "len": 40,
+     "note": "左詰め残りスペース（付録2.参照）"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 141,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "本体情報(1)",
+   "variant_rule": "データ・レコード区分=11（発行依頼・条件変更依頼共通）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "11:本体情報(1)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "03"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "01"
+    },
+    {
+     "name": "composition_kind",
+     "ja": "データ構成区分",
+     "k": "N",
+     "len": 2,
+     "note": "01:輸入信用状発行依頼 02:輸入信用状条件変更依頼"
+    },
+    {
+     "name": "lc_no",
+     "ja": "信用状番号(条件変更依頼のみ使用)",
+     "k": "C",
+     "len": 16,
+     "note": "銀行が採番した信用状番号 左詰め残りスペース。発行依頼はスペース"
+    },
+    {
+     "name": "lc_issued_on",
+     "ja": "信用状発行日(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 8,
+     "note": "変更前の信用状の発行日 YYYYMMDD(西暦)。発行依頼はスペース"
+    },
+    {
+     "name": "issue_date",
+     "ja": "発行日",
+     "k": "N",
+     "len": 8,
+     "note": "希望する信用状発行日 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "customer_ref",
+     "ja": "※取引先照会番号(取引先ﾚﾌｧﾚﾝｽ)",
+     "k": "C",
+     "len": 25,
+     "note": "任意 発行依頼人の取扱番号 左詰め残りスペース"
+    },
+    {
+     "name": "advice_method",
+     "ja": "信用状の通知方法",
+     "k": "N",
+     "len": 1,
+     "note": "1:FULL CABLE WITHOUT MAIL CONFIRMATION 2:AIRMAIL WITH BRIEF PRELIMINARY CABLE ADVICE 3:AIRMAIL 4:OTHER(内容は取引情報(7)項番5に記載。条件変更時不要)"
+    },
+    {
+     "name": "cable_kind",
+     "ja": "電信の種類",
+     "k": "N",
+     "len": 1,
+     "note": "1:ORDINARY 2:URGENT"
+    },
+    {
+     "name": "advising_bank_designated",
+     "ja": "通知銀行指定の有無",
+     "k": "N",
+     "len": 1,
+     "note": "1:指定しない 2:指定する"
+    },
+    {
+     "name": "advising_bank_name",
+     "ja": "通知銀行 (1)銀行名",
+     "k": "C",
+     "len": 35,
+     "note": "左詰め残りスペース。指定無(1)ならスペース"
+    },
+    {
+     "name": "advising_branch_name",
+     "ja": "通知銀行 (2)支店名",
+     "k": "C",
+     "len": 35,
+     "note": "左詰め残りスペース。指定無(1)ならスペース"
+    },
+    {
+     "name": "advising_bank_address",
+     "ja": "通知銀行 (3)住所",
+     "k": "C",
+     "len": 70,
+     "note": "左詰め残りスペース。指定無(1)ならスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 41,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "本体情報(2)",
+   "variant_rule": "データ・レコード区分=12（共通）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "12:本体情報(2)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "03"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "02"
+    },
+    {
+     "name": "beneficiary_name",
+     "ja": "受益者 (1)受益者名",
+     "k": "C",
+     "len": 70,
+     "note": ""
+    },
+    {
+     "name": "beneficiary_address",
+     "ja": "受益者 (2)受益者住所",
+     "k": "C",
+     "len": 70,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "beneficiary_consent",
+     "ja": "※BENEFICIARY CONSENT(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:不要 2:必要。発行依頼はスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 102,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "本体情報(3)",
+   "variant_rule": "データ・レコード区分=13（共通）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "13:本体情報(3)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "03"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "03"
+    },
+    {
+     "name": "applicant_name",
+     "ja": "信用状発行依頼人 (1)依頼人名",
+     "k": "C",
+     "len": 70,
+     "note": ""
+    },
+    {
+     "name": "applicant_address",
+     "ja": "信用状発行依頼人 (2)依頼人住所",
+     "k": "C",
+     "len": 70,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 103,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(1) 発行依頼",
+   "variant_rule": "データ・レコード区分=21 かつ 本体情報(1)データ構成区分=01（同一種類データ・レコード数=07）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "21:取引情報(1)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "01"
+    },
+    {
+     "name": "lc_currency",
+     "ja": "信用状金額 (1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "幣種コード。表示できない場合「999」"
+    },
+    {
+     "name": "lc_decimal",
+     "ja": "信用状金額 (2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "lc_amount",
+     "ja": "信用状金額 (3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "lc_max_or_about",
+     "ja": "信用状金額 ※(4)MAX OR ABOUT",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:MAX 2:ABOUT 3:APPRX 4:( )% MORE OR LESS 5:( )% MORE 6:( )% LESS"
+    },
+    {
+     "name": "lc_pct",
+     "ja": "信用状金額 (4)MAX OR ABOUT ( )内の値",
+     "k": "N",
+     "len": 2,
+     "note": "4,5,6の場合の%値 右詰め残り前「0」"
+    },
+    {
+     "name": "amend_kind",
+     "ja": "修正金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "amend_currency",
+     "ja": "修正金額(条件変更依頼のみ使用)",
+     "k": "C",
+     "len": 3,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "amend_decimal",
+     "ja": "修正金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "amend_amount",
+     "ja": "修正金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 15,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "amend_max_or_about",
+     "ja": "修正金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "amend_pct",
+     "ja": "修正金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 2,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "new_currency",
+     "ja": "修正後金額(条件変更依頼のみ使用)",
+     "k": "C",
+     "len": 3,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "new_decimal",
+     "ja": "修正後金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "new_amount",
+     "ja": "修正後金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 15,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "new_max_or_about",
+     "ja": "修正後金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "new_pct",
+     "ja": "修正後金額(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 2,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_availability",
+     "ja": "TENOR (1)資金化の条件",
+     "k": "N",
+     "len": 1,
+     "note": "1:BY PAYMENT 2:BY ACCEPTANCE 3:BY NEGOTIATION 4:BY DEFERRED PAYMENT 5:BY MIXED PAYMENT"
+    },
+    {
+     "name": "tenor_draft_cond",
+     "ja": "TENOR (2)手形の条件",
+     "k": "N",
+     "len": 1,
+     "note": "1:OF BENEFICIARY'S DRAFTS 2:AGAINST DOCUMENT'S 3:AGAINST BENEFICIARY'S RECEIPT 4:OTHER"
+    },
+    {
+     "name": "tenor_draft_cond_other",
+     "ja": "TENOR (2)手形の条件 OTHER詳細",
+     "k": "C",
+     "len": 25,
+     "note": "OTHER時の詳細、他はスペース"
+    },
+    {
+     "name": "tenor_kind",
+     "ja": "TENOR (3)手形TENORの種類",
+     "k": "N",
+     "len": 1,
+     "note": "1:AT SIGHT 2:OTHER"
+    },
+    {
+     "name": "tenor_kind_other",
+     "ja": "TENOR (3)手形TENORの種類 OTHER詳細",
+     "k": "C",
+     "len": 35,
+     "note": "OTHER時の詳細、他はスペース"
+    },
+    {
+     "name": "tenor_pct",
+     "ja": "TENOR (4)掛率",
+     "k": "N",
+     "len": 3,
+     "note": "INVOICE VALUEの%（無指定は100）"
+    },
+    {
+     "name": "tenor_wording",
+     "ja": "TENOR (5)記載文言",
+     "k": "C",
+     "len": 70,
+     "note": "任意 ⑤の文言 左詰め残りスペース"
+    },
+    {
+     "name": "tenor_drawee",
+     "ja": "TENOR ※(6)決済方法",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:YOU OR YOUR CORRESPONDENTS 2:OTHER(内訳情報ADCに記載)"
+    },
+    {
+     "name": "confirmation",
+     "ja": "確認の要否",
+     "k": "N",
+     "len": 1,
+     "note": "1:確認を依頼しない 2:確認を依頼する"
+    },
+    {
+     "name": "transferable",
+     "ja": "譲渡可能文言 (1)譲渡可否",
+     "k": "N",
+     "len": 1,
+     "note": "1:譲渡不可能 2:譲渡可能"
+    },
+    {
+     "name": "transfer_cond",
+     "ja": "譲渡可能文言 (2)譲渡可能の条件",
+     "k": "C",
+     "len": 35,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 2,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(2) 発行依頼",
+   "variant_rule": "データ・レコード区分=22 かつ データ構成区分=01（同一種類データ・レコード数=07）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "22:取引情報(2)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "02"
+    },
+    {
+     "name": "nego_bank_designation",
+     "ja": "※買取銀行指定",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:指定しない 2:指定する（通知銀行を買取銀行に）"
+    },
+    {
+     "name": "expiry_date",
+     "ja": "有効期限 (1)有効期限",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD(西暦) 揚地払条件信用状では有効期限の始期"
+    },
+    {
+     "name": "expiry_place",
+     "ja": "有効期限 (2)場所",
+     "k": "C",
+     "len": 29,
+     "note": "PLACE OF EXPIRY / PLACE FOR PRESENTATION OF DOCUMENTS"
+    },
+    {
+     "name": "expiry_date_amended",
+     "ja": "有効期限(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 8,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "payable_at_destination",
+     "ja": "揚地払条件",
+     "k": "N",
+     "len": 1,
+     "note": "1:揚地払条件信用状でない 2:揚地払条件信用状である(条件は内訳情報ADCに記載)"
+    },
+    {
+     "name": "final_expiry_date",
+     "ja": "※最終有効期限",
+     "k": "N",
+     "len": 8,
+     "note": "任意 揚地払条件信用状の最終有効期限 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "shipment_date",
+     "ja": "船積(積出)期限",
+     "k": "N",
+     "len": 8,
+     "note": "最終船積(積出)日 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "shipment_date_amended",
+     "ja": "船積(積出)期限(条件変更依頼のみ使用)",
+     "k": "N",
+     "len": 8,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "presentation_days",
+     "ja": "呈示期間(PRESENT DAY'S)",
+     "k": "N",
+     "len": 2,
+     "note": "書類呈示期間 右詰め残り前「0」。無指定は「21」"
+    },
+    {
+     "name": "partial_shipment",
+     "ja": "分割積出文言(PARTIALSHIP区分)",
+     "k": "N",
+     "len": 1,
+     "note": "1:ALLOWED 2:PROHIBITED"
+    },
+    {
+     "name": "transhipment",
+     "ja": "積換文言(TRANSHIP区分)",
+     "k": "N",
+     "len": 1,
+     "note": "1:ALLOWED 2:PROHIBITED"
+    },
+    {
+     "name": "ship_from",
+     "ja": "発送場所",
+     "k": "C",
+     "len": 65,
+     "note": "荷物の発送・委託場所。複数記載可 左詰め残りスペース"
+    },
+    {
+     "name": "ship_to",
+     "ja": "到着場所",
+     "k": "C",
+     "len": 65,
+     "note": "荷物の到着場所。複数記載可 左詰め残りスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 38,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(3) 発行依頼",
+   "variant_rule": "データ・レコード区分=23（発行依頼のみ）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "23:取引情報(3)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "03"
+    },
+    {
+     "name": "invoice_copies",
+     "ja": "商業送り状 (1)INVOICEの通数",
+     "k": "N",
+     "len": 2,
+     "note": "01:ONE COPY 02:DUPLICATE 03:TRIPLICATE … 12:TWELVE COPIES（通数コード）"
+    },
+    {
+     "name": "invoice_indicating",
+     "ja": "商業送り状 ※(2)送り状の名称等",
+     "k": "C",
+     "len": 71,
+     "note": "任意 INDICATING (②) の内容 左詰め残りスペース"
+    },
+    {
+     "name": "insurance_copies",
+     "ja": "※保険証券 ①通数",
+     "k": "N",
+     "len": 2,
+     "note": "任意 01:ONE COPY 02:DUPLICATE 03:TRIPLICATE … 12:TWELVE COPIES（通数コード）"
+    },
+    {
+     "name": "insurance_pct",
+     "ja": "※保険証券 ②保険料率",
+     "k": "N",
+     "len": 3,
+     "note": "任意 右詰め残り前「0」。無指定は110%"
+    },
+    {
+     "name": "insurance_basis",
+     "ja": "※保険証券 ③算出基準",
+     "k": "C",
+     "len": 15,
+     "note": "任意 保険金額をINVOICE VALUE以外とする場合の基準 左詰め残りスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 10,
+     "note": ""
+    },
+    {
+     "name": "cargo_clause",
+     "ja": "※保険の区分 ①CARGO CLAUSE区分",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:ALL RISKS 2:W.A 3:F.P.A"
+    },
+    {
+     "name": "war_srcc",
+     "ja": "※保険の区分 ②WAR・SRCC",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:セットする 2:セットしない"
+    },
+    {
+     "name": "other_insurance",
+     "ja": "※その他保険の形態",
+     "k": "C",
+     "len": 120,
+     "note": "任意 左詰め残りスペース"
+    },
+    {
+     "name": "dummy2",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 18,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(4) 発行依頼",
+   "variant_rule": "データ・レコード区分=24（発行依頼のみ）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "24:取引情報(4)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "04"
+    },
+    {
+     "name": "transport_doc",
+     "ja": "運送書類",
+     "k": "N",
+     "len": 1,
+     "note": "B/L通数 1:FULL SET 2:FULL SET LESS ONE ORIGINAL 3:OTHER"
+    },
+    {
+     "name": "transport_doc_other",
+     "ja": "運送書類 OTHER内容",
+     "k": "C",
+     "len": 35,
+     "note": "OTHER時のみ、他はスペース"
+    },
+    {
+     "name": "transport_mode",
+     "ja": "運送手段",
+     "k": "N",
+     "len": 1,
+     "note": "1:OCEAN 2:AIR WAYBILL 3:CONTAINER B/L 4:CHARTER PARTY B/L 5:THROUGH B/L 6:SEA WAYBILL 7:FORWARDERS CERTIFICATE OF RECEIPT 8:COMBINED TRANSPORT DOCUMENT 9:HOUSE AIR WAYBILL 0:OTHER"
+    },
+    {
+     "name": "transport_mode_other",
+     "ja": "運送手段 OTHER内容",
+     "k": "C",
+     "len": 35,
+     "note": "OTHER時のみ、他はスペース"
+    },
+    {
+     "name": "consignee",
+     "ja": "船荷証券等荷受人",
+     "k": "N",
+     "len": 1,
+     "note": "1:MADE OUT TO ORDER OF SHIPPED AND ENDORSED IN BLANK 2:MADE OUT TO ORDER OF ( ) 3:CONSIGNED TO ( ) 4:OTHER"
+    },
+    {
+     "name": "consignee_text",
+     "ja": "船荷証券等荷受人 ( )/OTHER内容",
+     "k": "C",
+     "len": 105,
+     "note": "2,3,4の場合に記載、1はスペース"
+    },
+    {
+     "name": "freight",
+     "ja": "運賃支払",
+     "k": "N",
+     "len": 1,
+     "note": "1:PREPAID 2:COLLECT 3:OTHER"
+    },
+    {
+     "name": "freight_other",
+     "ja": "運賃支払 OTHER詳細",
+     "k": "C",
+     "len": 35,
+     "note": "OTHER時のみ、他はスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 29,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(5) 発行依頼",
+   "variant_rule": "データ・レコード区分=25（発行依頼のみ）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "25:取引情報(5)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "05"
+    },
+    {
+     "name": "notify_party",
+     "ja": "船荷証券等通知先",
+     "k": "N",
+     "len": 1,
+     "note": "1:APPLICANT 2:OTHER"
+    },
+    {
+     "name": "notify_party_other",
+     "ja": "船荷証券等通知先 OTHER詳細",
+     "k": "C",
+     "len": 75,
+     "note": "OTHER時のみ、他はスペース"
+    },
+    {
+     "name": "packing_list_copies",
+     "ja": "※包装明細書",
+     "k": "N",
+     "len": 2,
+     "note": "任意 PACKING LIST IN ( ) の通数"
+    },
+    {
+     "name": "origin_cert_original",
+     "ja": "※原産地証明書(1) (1)原紙の通数",
+     "k": "N",
+     "len": 2,
+     "note": "任意"
+    },
+    {
+     "name": "origin_cert_copy",
+     "ja": "※原産地証明書(1) (2)写しの通数",
+     "k": "N",
+     "len": 2,
+     "note": "任意"
+    },
+    {
+     "name": "gsp_cert_original",
+     "ja": "※原産地証明書(2) (1)原紙の通数",
+     "k": "N",
+     "len": 2,
+     "note": "任意 G.S.P FORM A"
+    },
+    {
+     "name": "gsp_cert_copy",
+     "ja": "※原産地証明書(2) (2)写しの通数",
+     "k": "N",
+     "len": 2,
+     "note": "任意 G.S.P FORM A"
+    },
+    {
+     "name": "other_docs1",
+     "ja": "※OTHER DOCUMENTS(1)",
+     "k": "C",
+     "len": 155,
+     "note": "任意 BENEFICIARY'S CERTIFICATE STATING THAT ( ) の内容 左詰め残りスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 2,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(6) 発行依頼",
+   "variant_rule": "データ・レコード区分=26（発行依頼のみ）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "26:取引情報(6)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "06"
+    },
+    {
+     "name": "other_docs2",
+     "ja": "※OTHER DOCUMENTS(2)",
+     "k": "C",
+     "len": 120,
+     "note": "任意 要求書類 左詰め残りスペース"
+    },
+    {
+     "name": "trade_terms",
+     "ja": "建値 (1)条件",
+     "k": "N",
+     "len": 1,
+     "note": "1:FOB 2:C&F(CFR) 3:CIF 4:OTHER"
+    },
+    {
+     "name": "trade_terms_other",
+     "ja": "建値 (1)条件 OTHER内容",
+     "k": "C",
+     "len": 10,
+     "note": "左詰め残りスペース（OTHER以外はスペース）"
+    },
+    {
+     "name": "trade_place",
+     "ja": "建値 (2)取引場所",
+     "k": "C",
+     "len": 30,
+     "note": "PLACE 左詰め残りスペース"
+    },
+    {
+     "name": "insured_by_applicant",
+     "ja": "保険会社について (1)輸入業者による付保",
+     "k": "N",
+     "len": 1,
+     "note": "1:輸入業者で付保する 2:付保しない"
+    },
+    {
+     "name": "insurer_name",
+     "ja": "保険会社について ※(2)保険会社名",
+     "k": "C",
+     "len": 50,
+     "note": "任意 左詰め残りスペース"
+    },
+    {
+     "name": "tt_reimbursement",
+     "ja": "T.T REIMBURSEMENT",
+     "k": "N",
+     "len": 1,
+     "note": "1:ACCEPTABLE 2:PROHIBITED"
+    },
+    {
+     "name": "charges_outside_japan",
+     "ja": "ALL BANKING CHARGE'S OUTSIDE JAPAN",
+     "k": "N",
+     "len": 1,
+     "note": "1:BENEFICIARY 2:APPLICANT 3:OTHER(内訳情報ADCに記載)"
+    },
+    {
+     "name": "discount_charge",
+     "ja": "※DISCOUNT CHARGE(USANCE INT)",
+     "k": "N",
+     "len": 1,
+     "note": "任意 アクセプタンスユーザンス時 1:BENEFICIARY 2:APPLICANT"
+    },
+    {
+     "name": "acceptance_comm",
+     "ja": "※ACCEPTANCE COMM",
+     "k": "N",
+     "len": 1,
+     "note": "任意 アクセプタンスユーザンス時 1:BENEFICIARY 2:APPLICANT"
+    },
+    {
+     "name": "docs_lots",
+     "ja": "※書類送付方法等 (1)通数",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:ONE LOT 2:TWO SEPARATE SETS"
+    },
+    {
+     "name": "docs_dispatch",
+     "ja": "※書類送付方法等 (2)送付方法",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:COURIER SERVICE 2:REGISTERED AIR MAIL"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 25,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(7) 発行依頼",
+   "variant_rule": "データ・レコード区分=27（発行依頼のみ）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "27:取引情報(7)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "07"
+    },
+    {
+     "name": "request_to_bank",
+     "ja": "※発行銀行への依頼事項",
+     "k": "C",
+     "len": 150,
+     "note": "任意 左詰め残りスペース。この項目のみカナ・濁点・半濁点も使用可"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 93,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(1) 条件変更依頼",
+   "variant_rule": "データ・レコード区分=21 かつ 本体情報(1)データ構成区分=02（同一種類データ・レコード数=02）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "21:取引情報(1)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "02"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "01"
+    },
+    {
+     "name": "lc_currency",
+     "ja": "※信用状金額 (1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "任意 変更前 幣種コード。表示できない場合「999」"
+    },
+    {
+     "name": "lc_decimal",
+     "ja": "※信用状金額 (2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "任意 変更前 小数点以下桁数"
+    },
+    {
+     "name": "lc_amount",
+     "ja": "※信用状金額 (3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "任意 変更前 右詰め残り前「0」"
+    },
+    {
+     "name": "lc_max_or_about",
+     "ja": "※信用状金額 (4)MAX OR ABOUT",
+     "k": "N",
+     "len": 1,
+     "note": "任意 変更前 1:MAX 2:ABOUT 3:APPRX 4:( )% MORE OR LESS 5:( )% MORE 6:( )% LESS"
+    },
+    {
+     "name": "lc_pct",
+     "ja": "※信用状金額 (4)MAX OR ABOUT ( )内の値",
+     "k": "N",
+     "len": 2,
+     "note": "任意 変更前 4,5,6の場合の%値 右詰め残り前「0」"
+    },
+    {
+     "name": "amend_kind",
+     "ja": "※修正金額 (1)変更内容",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:増額 2:減額"
+    },
+    {
+     "name": "amend_currency",
+     "ja": "※修正金額 (2)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "任意 表示できない場合「999」"
+    },
+    {
+     "name": "amend_decimal",
+     "ja": "※修正金額 (3)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "任意"
+    },
+    {
+     "name": "amend_amount",
+     "ja": "※修正金額 (4)金額",
+     "k": "N",
+     "len": 15,
+     "note": "任意 変更金額 右詰め残り前「0」"
+    },
+    {
+     "name": "amend_max_or_about",
+     "ja": "※修正金額 (5)MAX OR ABOUT",
+     "k": "N",
+     "len": 1,
+     "note": "任意 1:MAX 2:ABOUT 3:APPRX 4:( )% MORE OR LESS 5:( )% MORE 6:( )% LESS"
+    },
+    {
+     "name": "amend_pct",
+     "ja": "※修正金額 (5)MAX OR ABOUT ( )内の値",
+     "k": "N",
+     "len": 2,
+     "note": "任意 右詰め残り前「0」"
+    },
+    {
+     "name": "new_currency",
+     "ja": "※修正後金額 (1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "任意 変更後 幣種コード。表示できない場合「999」"
+    },
+    {
+     "name": "new_decimal",
+     "ja": "※修正後金額 (2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "任意 変更後 小数点以下桁数"
+    },
+    {
+     "name": "new_amount",
+     "ja": "※修正後金額 (3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "任意 変更後 右詰め残り前「0」"
+    },
+    {
+     "name": "new_max_or_about",
+     "ja": "※修正後金額 (4)MAX OR ABOUT",
+     "k": "N",
+     "len": 1,
+     "note": "任意 変更後 1:MAX 2:ABOUT 3:APPRX 4:( )% MORE OR LESS 5:( )% MORE 6:( )% LESS"
+    },
+    {
+     "name": "new_pct",
+     "ja": "※修正後金額 (4)MAX OR ABOUT ( )内の値",
+     "k": "N",
+     "len": 2,
+     "note": "任意 変更後 4,5,6の場合の%値 右詰め残り前「0」"
+    },
+    {
+     "name": "tenor_availability",
+     "ja": "TENORについて (1)資金化の条件",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_draft_cond",
+     "ja": "TENORについて (2)手形の条件",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_draft_cond_other",
+     "ja": "TENORについて (2)手形の条件 OTHER詳細",
+     "k": "C",
+     "len": 25,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_kind",
+     "ja": "TENORについて (3)手形TENORの種類",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_kind_other",
+     "ja": "TENORについて (3)手形TENORの種類 OTHER詳細",
+     "k": "C",
+     "len": 35,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_pct",
+     "ja": "TENORについて (4)掛率",
+     "k": "N",
+     "len": 3,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "tenor_wording",
+     "ja": "TENORについて (5)記載文言",
+     "k": "N",
+     "len": 70,
+     "note": "オール・スペースをセット（原表は N(70) と記載。発行依頼側は C(70)）"
+    },
+    {
+     "name": "tenor_drawee",
+     "ja": "TENORについて ※(6)決済方法",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "confirmation",
+     "ja": "確認の要否",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "transferable",
+     "ja": "譲渡可能文言",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "transfer_cond",
+     "ja": "譲渡可能文言",
+     "k": "C",
+     "len": 35,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 2,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "取引情報(2) 条件変更依頼",
+   "variant_rule": "データ・レコード区分=22 かつ データ構成区分=02（同一種類データ・レコード数=02）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "22:取引情報(2)"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "02"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "02"
+    },
+    {
+     "name": "nego_bank_designation",
+     "ja": "※買取銀行指定",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "expiry_date",
+     "ja": "※有効期限 (1)有効期限",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD(西暦) 変更前の有効期限"
+    },
+    {
+     "name": "expiry_place",
+     "ja": "※有効期限 (2)場所",
+     "k": "C",
+     "len": 29,
+     "note": "PLACE OF EXPIRY / PLACE FOR PRESENTATION OF DOCUMENTS"
+    },
+    {
+     "name": "expiry_date_amended",
+     "ja": "※有効期限(条件変更時の変更後の期限)",
+     "k": "N",
+     "len": 8,
+     "note": "変更後の有効期限 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "payable_at_destination",
+     "ja": "※揚地払条件",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "final_expiry_date",
+     "ja": "※最終有効期限",
+     "k": "N",
+     "len": 8,
+     "note": "オール・スペースをセット。但し揚地払条件信用状の場合は変更後の最終有効期限"
+    },
+    {
+     "name": "shipment_date",
+     "ja": "※船積(積出)期限",
+     "k": "N",
+     "len": 8,
+     "note": "最終船積(積出)日 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "shipment_date_amended",
+     "ja": "※船積(積出)期限(条件変更時の変更後の期限)",
+     "k": "N",
+     "len": 8,
+     "note": "変更後の最終積出日 YYYYMMDD(西暦)"
+    },
+    {
+     "name": "presentation_days",
+     "ja": "呈示期間(PRESENT DAY'S)",
+     "k": "N",
+     "len": 2,
+     "note": "変更後の書類呈示期間 右詰め残り前「0」。無指定は「21」"
+    },
+    {
+     "name": "partial_shipment",
+     "ja": "※分割積出文言(PARTIALSHIP区分)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "transhipment",
+     "ja": "※積換文言(TRANSHIP区分)",
+     "k": "N",
+     "len": 1,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "ship_from",
+     "ja": "※発送場所",
+     "k": "C",
+     "len": 65,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "ship_to",
+     "ja": "※到着場所",
+     "k": "C",
+     "len": 65,
+     "note": "オール・スペースをセット"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 38,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "内訳情報",
+   "variant_rule": "データ・レコード区分=30（発行・条件変更共通、1件につき1～15レコード）",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2:データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "30:内訳情報"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "右詰め残り前「0」。最大15(01～15)"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "右詰め残り前「0」。最大15(01～15)"
+    },
+    {
+     "name": "var_line_count",
+     "ja": "可変項目行数",
+     "k": "N",
+     "len": 2,
+     "note": "本レコードの可変項目データ行数 右詰め残り前「0」"
+    },
+    {
+     "name": "var_total_len",
+     "ja": "レングス合計",
+     "k": "N",
+     "len": 3,
+     "note": "本レコードの可変項目データ内容の文字数合計 右詰め残り前「0」"
+    },
+    {
+     "name": "var_items",
+     "ja": "可変項目（項番7 ※商品情報, 項番8 ※追加条件情報, 項番9 ダミー）",
+     "k": "C",
+     "len": 238,
+     "note": "13～250桁目。CVN(商品情報)/ADC(追加条件情報) + レングス(001～064) + データ内容 の行単位の繰り返し。CVNを全てセット後にADC。未使用項目はID・レングスとも省略。残りはダミー(残り桁数)"
+    }
+   ]
+  },
+  {
+   "kind": "trailer",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "8:トレーラ・レコード"
+    },
+    {
+     "name": "data_record_count",
+     "ja": "データ・レコード総件数",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "body_count",
+     "ja": "本体情報総件数",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」（本体情報3レコードで1件）"
+    },
+    {
+     "name": "issue_count",
+     "ja": "本体情報総件数 うち発行依頼分",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "amend_count",
+     "ja": "本体情報総件数 うち条件変更依頼分",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 209,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "end",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "9:エンド・レコード"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 249,
+     "note": ""
+    }
+   ]
+  }
+ ],
+ "notes": "構成: ヘッダー → [本体情報11,12,13 + 取引情報(発行依頼:21～27の7レコード / 条件変更依頼:21,22の2レコード) + 内訳情報30×1～15] ×n → トレーラ → エンド。発行依頼か条件変更依頼かは本体情報(1)のデータ構成区分(01/02)で決まり、取引情報21/22のレイアウトが変わる（同一種類データ・レコード数も07/02で区別可）。21/22の両版は桁位置が同一で、発行依頼版の「条件変更依頼のみ使用」項目はスペース、条件変更版の不要項目はオール・スペース。金額は小数点なし整数 N(15) + 小数点位置。幣種コードはISO 4217、表示できない場合「999」。原表で名前のない従属桁(例: MAX OR ABOUT の N(2)、OTHER詳細の C(n)、保険証券の①②③)は親項目名+補足で ja を付けた。取引情報(1)項番6・7(発行依頼版)および条件変更版の項番8・9・10は原表が桁数のみ列挙しており、ja は親項目名を繰り返した。条件変更版 取引情報(1) TENOR(5)記載文言は原表で N(70)（発行依頼版は C(70)）。オール・スペースなので実害なし、原表どおり N とした。内訳情報は可変レコード: 1～12桁目固定、13～250桁目に ID(3)+レングス(3,001～064)+データ を行単位で並べる。本JSONでは var_items C(238) の1フィールド。使用文字は A-Z, SP, / - ? : ( ) . , ' + のみ（数字の記載なし、原文どおり）。取引情報(7)発行銀行への依頼事項のみカナ可（付録1注6）。トレーラ: data_record_count=全データ・レコード数、body_count=本体情報件数(3レコードで1件)、issue_count+amend_count=body_count と思われる。※は任意項目。"
+}

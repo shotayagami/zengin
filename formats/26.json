@@ -1,0 +1,273 @@
+{
+ "no": 26,
+ "title": "借入金残高合計",
+ "data_code": "0233",
+ "type_code": 33,
+ "mode": "照会",
+ "rec_len": 250,
+ "records": [
+  {
+   "kind": "header",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：ヘッダー・レコード"
+    },
+    {
+     "name": "type",
+     "ja": "種別コード",
+     "k": "N",
+     "len": 2,
+     "note": "33：借入金残高合計"
+    },
+    {
+     "name": "code",
+     "ja": "コード区分",
+     "k": "N",
+     "len": 1,
+     "note": "0：JIS 1：EBCDIC"
+    },
+    {
+     "name": "created_date",
+     "ja": "作成日",
+     "k": "N",
+     "len": 6,
+     "note": "データ作成日。YYMMDD（和暦）"
+    },
+    {
+     "name": "notice_date",
+     "ja": "※連絡日",
+     "k": "N",
+     "len": 6,
+     "note": "YYMMDD（和暦）。任意"
+    },
+    {
+     "name": "notice_seq",
+     "ja": "※連絡回数",
+     "k": "N",
+     "len": 2,
+     "note": "連絡日における連絡回数。右詰め残り前「0」。任意"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 6,
+     "note": "スペース"
+    },
+    {
+     "name": "dummy2",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 6,
+     "note": "スペース"
+    },
+    {
+     "name": "bank_no",
+     "ja": "銀行コード",
+     "k": "N",
+     "len": 4,
+     "note": "取引銀行。統一金融機関番号"
+    },
+    {
+     "name": "bank_name",
+     "ja": "銀行名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "branch_no",
+     "ja": "支店コード",
+     "k": "N",
+     "len": 3,
+     "note": "取引支店。統一店番号"
+    },
+    {
+     "name": "branch_name",
+     "ja": "支店名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "client_code",
+     "ja": "会社コード",
+     "k": "N",
+     "len": 10,
+     "note": "銀行が採番した取引先の会社コード。右詰め残り前「0」"
+    },
+    {
+     "name": "client_name",
+     "ja": "会社名",
+     "k": "C",
+     "len": 50,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "dummy3",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 123,
+     "note": "スペース"
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 2,
+     "note": "スペース（他フォーマットのデータ・レコード区分の位置）"
+    },
+    {
+     "name": "dummy2",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 1,
+     "note": "スペース"
+    },
+    {
+     "name": "dummy3",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 20,
+     "note": "スペース"
+    },
+    {
+     "name": "base_date",
+     "ja": "基準日",
+     "k": "N",
+     "len": 6,
+     "note": "残高の基準日。YYMMDD（和暦）"
+    },
+    {
+     "name": "base_time",
+     "ja": "※基準時刻",
+     "k": "N",
+     "len": 4,
+     "note": "HHMM。任意"
+    },
+    {
+     "name": "branch_no",
+     "ja": "支店コード",
+     "k": "N",
+     "len": 3,
+     "note": "取引支店。統一店番号"
+    },
+    {
+     "name": "dummy4",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 1,
+     "note": "スペース"
+    },
+    {
+     "name": "bill_loan_balance",
+     "ja": "手形貸付残高",
+     "k": "N",
+     "len": 15,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "deed_loan_balance",
+     "ja": "証書貸付残高",
+     "k": "N",
+     "len": 15,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "discount_balance",
+     "ja": "商業手形割引残高",
+     "k": "N",
+     "len": 15,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "dummy5",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 135,
+     "note": "スペース"
+    },
+    {
+     "name": "total_balance",
+     "ja": "借入金合計残高",
+     "k": "N",
+     "len": 15,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "dummy6",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 17,
+     "note": "スペース"
+    }
+   ]
+  },
+  {
+   "kind": "trailer",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "8：トレーラ・レコード"
+    },
+    {
+     "name": "count",
+     "ja": "データ・レコード件数",
+     "k": "N",
+     "len": 6,
+     "note": "データ・レコードの総件数（全種類合計）。右詰め残り前「0」"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 243,
+     "note": "スペース"
+    }
+   ]
+  },
+  {
+   "kind": "end",
+   "variant": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "9：エンド・レコード"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 249,
+     "note": "スペース"
+    }
+   ]
+  }
+ ],
+ "notes": "取引先に対し一定の基準時点における借入金残高を借入科目ごとの合計で通知する。データ・レコードは1種類（例：H, 残高合計, T, E）。ヘッダーは借入金残高明細(25)と同形（項番7・8ダミー）、種別コードN(2)=33。日付は和暦YYMMDD。※は任意項目。借入金合計残高は手形貸付・証書貸付・商業手形割引残高の合計と思われるが、原文に明記はない（内容欄は「残高」のみ）。トレーラはデータ・レコード件数（N(6)）のみ。"
+}

@@ -34,8 +34,8 @@ Quick start: see [Run it on one machine](#1台で全部動かす) below.
 | 層 | 内容 |
 |---|---|
 | 全銀協プロトコル | サブレイヤ(論理ACK、連続送信 MN/AF)、伝送テキスト(TTC)、制御電文(開局/閉局/開始/終了/再送)、JIS・EBCDIC のレコード、繰り返し文字圧縮、同一接続内の再送 |
-| 業務 | 総合振込、給与振込(連絡モード)、振込入金通知(照会モード) |
-| 銀行ノード | 取引先企業と口座台帳、他行宛の振込を為替通知にして送信、受信した為替通知の入金、返却、組戻し、振込入金通知の生成 |
+| 業務 | 別冊の 32 業務すべてのレコード (総合振込、給与・賞与振込、口座振替、振込口座照会、入出金取引明細、残高通知、財形、借入金、外国為替など)。`zengin kinds` で一覧 |
+| 銀行ノード | 取引先企業と口座台帳、他行宛の振込を為替通知にして送信、受信した為替通知の入金、返却、組戻し、振込入金通知・入出金取引明細・残高通知の生成、預金口座振替、振込口座照会、財形の積立、担当者が登録したファイルの照会での受け渡し |
 | 全銀ネット | 為替通知の中継(銀行へ自分から配信、失敗時は再試行)、仕向超過額管理、1億円以上の即時決済、日次清算、重複の無視 |
 
 構成:
@@ -83,6 +83,25 @@ $Z bank recall --data $D/b1 取扱番号                       # 組戻依頼 (�
 
 存在しない口座宛の 100 円は、銀行2が返却し、銀行1の口座に戻る。コマンドの一覧は `zengin` を引数なしで実行すると出る。
 
+### ほかの業務
+
+```sh
+$Z kinds                                   # 業務の一覧 (名前、データコード、モード、レコード長)
+# 預金口座振替: ACME が、銀行1の TANAKA の口座から 3000 円を引き落とす依頼を出し、結果を取る
+$Z gen furikae --out $D/fk.dat --client-code 1 --client-name "ｶ)ｱｸﾐ" --bank 1 --item 1:10:1:2:ﾀﾅｶ:3000
+$Z send  --conf examples/companyA.conf --kind furikae --file $D/fk.dat
+$Z fetch --conf examples/companyA.conf --kind furikaekekka --out $D/fk-result.dat
+$Z fetch --conf examples/companyA.conf --kind meisai --out $D/meisai.dat     # 入出金取引明細
+$Z fetch --conf examples/companyA.conf --kind zandaka --out $D/zandaka.dat   # 残高通知
+# 項目を直接指定して作る (--set はヘッダー、--rec はデータ・レコード1件)
+$Z gen zaikei --out $D/zk.dat --set client_code=1 --rec "member_code=11;member_name=ﾔﾏﾀﾞ;salary_amount=10000"
+# 銀行の担当者が、照会で渡すファイルを登録する (住宅ローン、借入金、外国為替など)
+$Z bank publish --data $D/b1 --company ACME --kind loanzaikei --file loan.dat
+$Z show --kind meisai $D/meisai.dat        # ファイルの中身を表示する
+```
+
+業務ごとの銀行ノードの処理は [`docs/spec-net.md`](docs/spec-net.md) §4.8。
+
 ### Tailscale 網内で動かす
 
 1. 各ノードの設定ファイルのアドレスを、Tailscale の `100.x.y.z` (または MagicDNS 名) にする。
@@ -99,6 +118,7 @@ $Z bank recall --data $D/b1 取扱番号                       # 組戻依頼 (�
 - パスワード、キーは 6 文字以内。使える文字は、半角カナ・英大文字・数字・記号など (`src/charcodes.txt`)。
 - 銀行の `[company 名前]` が取引先企業とその口座、`[account 名前]` が個人などの口座。
   口座の残高は初回だけ設定の `balance` を使い、以降は `--data` の状態ファイルが優先される。
+  `[account 名前]` の `name` は名義 (半角カナなど。振込口座照会で照らし合わせる)。
 
 ### ドキュメント
 

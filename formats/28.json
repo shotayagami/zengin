@@ -1,0 +1,2144 @@
+{
+ "no": 28,
+ "title": "外国為替取引明細（非会計性）",
+ "data_code": "0426",
+ "type_code": 26,
+ "mode": "照会",
+ "rec_len": 250,
+ "records": [
+  {
+   "kind": "header",
+   "variant": null,
+   "variant_rule": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：ヘッダー・レコード"
+    },
+    {
+     "name": "type",
+     "ja": "種別コード",
+     "k": "N",
+     "len": 2,
+     "note": "26：外国為替取引明細（非会計性）"
+    },
+    {
+     "name": "code",
+     "ja": "コード区分",
+     "k": "N",
+     "len": 1,
+     "note": "0：JIS、1：EBCDIC"
+    },
+    {
+     "name": "trade_info_kind",
+     "ja": "取引情報区分",
+     "k": "N",
+     "len": 3,
+     "note": "620：輸出信用状到着案内、630：輸入船積書類到着案内、660：被仕向送金到着案内、670：輸出手形経過情報"
+    },
+    {
+     "name": "created_date",
+     "ja": "作成日",
+     "k": "N",
+     "len": 8,
+     "note": "データ作成日 YYYYMMDD"
+    },
+    {
+     "name": "notice_date",
+     "ja": "※連絡日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "notice_count",
+     "ja": "※連絡回数",
+     "k": "N",
+     "len": 2,
+     "note": "連絡日における連絡回数。右詰め残り前「0」"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 8,
+     "note": "(会計性の勘定日(自)の位置)"
+    },
+    {
+     "name": "dummy2",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 8,
+     "note": "(会計性の勘定日(至)の位置)"
+    },
+    {
+     "name": "bank_code",
+     "ja": "銀行コード",
+     "k": "N",
+     "len": 4,
+     "note": "統一金融機関番号"
+    },
+    {
+     "name": "bank_name",
+     "ja": "銀行名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "agent_branch_code",
+     "ja": "※支店（取次店）コード",
+     "k": "N",
+     "len": 3,
+     "note": "統一店番号"
+    },
+    {
+     "name": "agent_branch_name",
+     "ja": "※支店（取次店）名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "branch_code",
+     "ja": "※支店（取扱店）コード",
+     "k": "N",
+     "len": 3,
+     "note": "統一店番号"
+    },
+    {
+     "name": "branch_name",
+     "ja": "※支店（取扱店）名",
+     "k": "C",
+     "len": 15,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "company_code",
+     "ja": "会社コード",
+     "k": "N",
+     "len": 10,
+     "note": "銀行が採番。右詰め残り前「0」"
+    },
+    {
+     "name": "company_name",
+     "ja": "会社名",
+     "k": "C",
+     "len": 70,
+     "note": "左詰め残りスペース。カナ、数字、英字。事業所名、出張所名等を含めてもよい"
+    },
+    {
+     "name": "dummy3",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 74,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "02 輸出信用状到着案内（固定レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "02：輸出信用状到着案内（固定レコード）"
+    },
+    {
+     "name": "composition_kind",
+     "ja": "データ構成区分",
+     "k": "N",
+     "len": 2,
+     "note": "01：固定レコードのみ、02：固定レコード＋可変レコード、03：固定レコード＋利息・手数料、04：固定レコード＋可変レコード＋利息・手数料"
+    },
+    {
+     "name": "cancel_code",
+     "ja": "取消コード",
+     "k": "N",
+     "len": 1,
+     "note": "後続データ・レコードの入力種別。0：正常入力、9：取消入力"
+    },
+    {
+     "name": "seq_no",
+     "ja": "処理通番",
+     "k": "N",
+     "len": 4,
+     "note": "1連絡単位(ヘッダー単位)のシークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "bank_ref",
+     "ja": "※銀行照会番号（銀行レファレンス）",
+     "k": "C",
+     "len": 16,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "receipt_date",
+     "ja": "接受日",
+     "k": "N",
+     "len": 8,
+     "note": "信用状の接受日 YYYYMMDD"
+    },
+    {
+     "name": "issue_date",
+     "ja": "※発行日",
+     "k": "N",
+     "len": 8,
+     "note": "信用状の発行日 YYYYMMDD"
+    },
+    {
+     "name": "lc_kind",
+     "ja": "種別",
+     "k": "N",
+     "len": 1,
+     "note": "1：ORIGINAL、2：AMENDMENT、3：PRELIMINARY ADVICE、9：OTHERS"
+    },
+    {
+     "name": "amend_kind",
+     "ja": "※AMENDMENT区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：金額変更、2：有効期限変更、3：金額・有効期限変更、4：受益者変更、5：取消依頼、9：その他"
+    },
+    {
+     "name": "amend_count",
+     "ja": "※AMENDMENT回数",
+     "k": "N",
+     "len": 3,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "amount_change_kind",
+     "ja": "※金額変更内容区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：増額、2：減額"
+    },
+    {
+     "name": "expiry_change_kind",
+     "ja": "※有効期限内容区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：延長、2：短縮"
+    },
+    {
+     "name": "lc_no",
+     "ja": "信用状番号",
+     "k": "C",
+     "len": 32,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "lc_currency",
+     "ja": "信用状金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "lc_decimals",
+     "ja": "信用状金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "lc_amount",
+     "ja": "信用状金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "信用状金額(金額変更の場合は変更後)。右詰め残り前「0」"
+    },
+    {
+     "name": "lc_change_currency",
+     "ja": "※信用状増減金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "lc_change_decimals",
+     "ja": "※信用状増減金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "lc_change_amount",
+     "ja": "※信用状増減金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "金額変更の場合の増減金額(増減の別は金額変更内容区分)。右詰め残り前「0」"
+    },
+    {
+     "name": "expiry_date",
+     "ja": "有効期限",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD。変更の場合は変更後"
+    },
+    {
+     "name": "restricted",
+     "ja": "※リストリクト有無",
+     "k": "N",
+     "len": 1,
+     "note": "手形買取銀行のリストリクト。0：なし、1：あり"
+    },
+    {
+     "name": "confirmed",
+     "ja": "※確認有無",
+     "k": "N",
+     "len": 1,
+     "note": "0：UNCONFIRMED、1：CONFIRMED BY THE THIRD BANK、2：CONFIRMED BY US"
+    },
+    {
+     "name": "advice_fee_payer",
+     "ja": "※通知手数料負担者",
+     "k": "N",
+     "len": 1,
+     "note": "1：貴社、2：発行銀行、9：その他"
+    },
+    {
+     "name": "confirm_fee_payer",
+     "ja": "※確認手数料負担者",
+     "k": "N",
+     "len": 1,
+     "note": "1：貴社、2：発行銀行、9：その他"
+    },
+    {
+     "name": "receipt_method",
+     "ja": "※接受方法",
+     "k": "N",
+     "len": 1,
+     "note": "1：CABLE、2：MAIL（銀行宛）、3：MAIL（貴社宛）"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 118,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "62 輸出信用状到着案内（可変レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "62：輸出信用状到着案内（可変レコード）"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 4,
+     "note": "1つの輸出信用状到着案内（固定レコード）に続く可変レコードの数。右詰め残り前「0」"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 4,
+     "note": "シークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_count",
+     "ja": "可変項目数",
+     "k": "N",
+     "len": 2,
+     "note": "当該レコード中の項番7～17の可変項目数。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_len",
+     "ja": "可変項目有効桁数",
+     "k": "N",
+     "len": 3,
+     "note": "当該レコード中の項番7～17の可変項目の有効桁数合計(別表1の例ではID・レングス6桁を含めた合計)。右詰め残り前「0」"
+    },
+    {
+     "name": "variable_area",
+     "ja": "可変項目（項番7～17）＋ダミー（項番18、残り桁数）",
+     "k": "C",
+     "len": 234,
+     "note": "17桁目以降。可変項目を「ID英字3桁＋レングス数字3桁＋内容」で任意順に詰めて記録し、余白はダミー(SP)。可変項目は variable_items 参照"
+    }
+   ],
+   "variable_items": [
+    {
+     "item_no": 7,
+     "ja": "※APPLICANT",
+     "ids": [
+      {
+       "id": "APT",
+       "max": 140,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 8,
+     "ja": "※商品名",
+     "ids": [
+      {
+       "id": "MCD",
+       "max": 80,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 9,
+     "ja": "※商品名カット／修正有無情報",
+     "ids": [
+      {
+       "id": "MCT",
+       "max": 1,
+       "meaning": "レングスは「001」固定。0：なし、1：あり"
+      }
+     ]
+    },
+    {
+     "item_no": 10,
+     "ja": "※仕向地",
+     "ids": [
+      {
+       "id": "PTO",
+       "max": 70,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 11,
+     "ja": "※船積情報（期限）",
+     "ids": [
+      {
+       "id": "SHP",
+       "max": 195,
+       "meaning": ""
+      }
+     ],
+     "note": "（注1）SWIFT経由で受信された信用状に記載されていた場合にセットできる"
+    },
+    {
+     "item_no": 12,
+     "ja": "※発行銀行情報",
+     "ids": [
+      {
+       "id": "BIW",
+       "max": 177,
+       "meaning": "銀行名・支店名・住所"
+      },
+      {
+       "id": "BIN",
+       "max": 72,
+       "meaning": "銀行名"
+      },
+      {
+       "id": "BIB",
+       "max": 35,
+       "meaning": "支店名"
+      },
+      {
+       "id": "BIA",
+       "max": 70,
+       "meaning": "住所"
+      }
+     ]
+    },
+    {
+     "item_no": 13,
+     "ja": "※確認銀行情報",
+     "ids": [
+      {
+       "id": "BFW",
+       "max": 177,
+       "meaning": "銀行名・支店名・住所"
+      },
+      {
+       "id": "BFN",
+       "max": 72,
+       "meaning": "銀行名"
+      },
+      {
+       "id": "BFB",
+       "max": 35,
+       "meaning": "支店名"
+      },
+      {
+       "id": "BFA",
+       "max": 70,
+       "meaning": "住所"
+      }
+     ]
+    },
+    {
+     "item_no": 14,
+     "ja": "※テナー／手形支払人",
+     "ids": [
+      {
+       "id": "TDE",
+       "max": 140,
+       "meaning": ""
+      }
+     ],
+     "note": "（注1）"
+    },
+    {
+     "item_no": 15,
+     "ja": "※AMOUNT SPECIFICATIONS",
+     "ids": [
+      {
+       "id": "ASP",
+       "max": 140,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 16,
+     "ja": "※AMENDMENT内容",
+     "ids": [
+      {
+       "id": "nAD",
+       "max": 65,
+       "meaning": "n=1,2,3 (IDは1AD,2AD,3AD)"
+      }
+     ]
+    },
+    {
+     "item_no": 17,
+     "ja": "※チャージ情報",
+     "ids": [
+      {
+       "id": "CHG",
+       "max": 210,
+       "meaning": ""
+      }
+     ],
+     "note": "（注1）"
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "03 輸入船積書類到着案内（固定レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "03：輸入船積書類到着案内（固定レコード）"
+    },
+    {
+     "name": "composition_kind",
+     "ja": "データ構成区分",
+     "k": "N",
+     "len": 2,
+     "note": "01：固定レコードのみ、02：固定レコード＋可変レコード、03：固定レコード＋利息・手数料、04：固定レコード＋可変レコード＋利息・手数料"
+    },
+    {
+     "name": "cancel_code",
+     "ja": "取消コード",
+     "k": "N",
+     "len": 1,
+     "note": "後続データ・レコードの入力種別。0：正常入力、9：取消入力"
+    },
+    {
+     "name": "seq_no",
+     "ja": "処理通番",
+     "k": "N",
+     "len": 4,
+     "note": "1連絡単位(ヘッダー単位)のシークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "bank_ref",
+     "ja": "※銀行照会番号（銀行レファレンス）",
+     "k": "C",
+     "len": 16,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "receipt_date",
+     "ja": "接受日",
+     "k": "N",
+     "len": 8,
+     "note": "書類の接受日 YYYYMMDD"
+    },
+    {
+     "name": "receipt_kind",
+     "ja": "※接受区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：ORIGINAL、2：T. T. REIMBURSEMENT、3：REVISED"
+    },
+    {
+     "name": "delivery_terms",
+     "ja": "※書類引渡条件",
+     "k": "N",
+     "len": 1,
+     "note": "1：D/P、2：D/A、3：T/R、4：FREE OF PAYMENT、5：UNDERTAKING、6：PROMISSORY NOTE、9：OTHERS(内容は可変DLCに記録可)"
+    },
+    {
+     "name": "draft_date",
+     "ja": "※手形振出日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "drawer_name_addr1",
+     "ja": "※手形振出人名・住所（1）",
+     "k": "C",
+     "len": 90,
+     "note": "不足時は可変レコードDWR(手形振出人名・住所(2))を使用。(1)(2)に分けてもよい"
+    },
+    {
+     "name": "bill_kind",
+     "ja": "※手形種別区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：L/C付、2：L/Cなし、9：その他(内容は可変TNRに記録可)"
+    },
+    {
+     "name": "usance_code",
+     "ja": "※ユーザンス・コード",
+     "k": "N",
+     "len": 2,
+     "note": "10：AT SIGHT、20：自行ユーザンス、30：外銀ユーザンス、40：シッパーズ・ユーザンス、90：その他(内容は可変USCに記録可)"
+    },
+    {
+     "name": "settle_date",
+     "ja": "※対外決済日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "trade_currency",
+     "ja": "取引金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "trade_decimals",
+     "ja": "取引金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "trade_amount",
+     "ja": "取引金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "手形の決済金額。右詰め残り前「0」"
+    },
+    {
+     "name": "bill_currency",
+     "ja": "※手形金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "bill_decimals",
+     "ja": "※手形金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "bill_amount",
+     "ja": "※手形金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "決済金額が手形金額の一部の場合に手形金額全額。全額支払の場合はSP。右詰め残り前「0」"
+    },
+    {
+     "name": "tenor_unit",
+     "ja": "※手形テナー(1)表示区分",
+     "k": "C",
+     "len": 1,
+     "note": "D：DAY、M：MONTH、X：OTHERS"
+    },
+    {
+     "name": "tenor_count",
+     "ja": "※手形テナー(2)日数または月数",
+     "k": "N",
+     "len": 3,
+     "note": "右詰め残り前「0」。OTHERSの場合は「XXX」(N項目だが英字が入る)"
+    },
+    {
+     "name": "tenor",
+     "ja": "※手形テナー(3)テナー",
+     "k": "C",
+     "len": 2,
+     "note": "BL：AFTER B/L、BF：FROM B/L、BE：AFTER DATE OF BILL OF EXCHANGE、CC：AFTER CUSTOMS CLEARANCE OF GOODS、FD：AFTER GOODS PASS FOOD AND DRUG ADMINISTRATION、FP：FIRST PRESENTATION、GA：AFTER GOODS’ ARRIVAL、ID：AFTER INVOICE DATE、ST：AFTER SIGHT、XX：OTHERS"
+    },
+    {
+     "name": "due_date",
+     "ja": "※期日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "nego_date",
+     "ja": "※買取日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "ship_date",
+     "ja": "※船積日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "trade_terms",
+     "ja": "※建値",
+     "k": "N",
+     "len": 1,
+     "note": "1：CIF、2：C&I、3：C&F、4：FOB、9：OTHERS"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 36,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "63 輸入船積書類到着案内（可変レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "63：輸入船積書類到着案内（可変レコード）"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 4,
+     "note": "1つの輸入船積書類到着案内（固定レコード）に続く可変レコードの数。右詰め残り前「0」"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 4,
+     "note": "シークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_count",
+     "ja": "可変項目数",
+     "k": "N",
+     "len": 2,
+     "note": "当該レコード中の項番7～11の可変項目数。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_len",
+     "ja": "可変項目有効桁数",
+     "k": "N",
+     "len": 3,
+     "note": "当該レコード中の項番7～11の可変項目の有効桁数合計(別表1の例ではID・レングス6桁を含めた合計)。右詰め残り前「0」"
+    },
+    {
+     "name": "variable_area",
+     "ja": "可変項目（項番7～11）＋ダミー（項番12、残り桁数）",
+     "k": "C",
+     "len": 234,
+     "note": "17桁目以降。可変項目を「ID英字3桁＋レングス数字3桁＋内容」で任意順に詰めて記録し、余白はダミー(SP)。可変項目は variable_items 参照"
+    }
+   ],
+   "variable_items": [
+    {
+     "item_no": 7,
+     "ja": "※固定部補足情報",
+     "ids": [
+      {
+       "id": "DLC",
+       "max": 40,
+       "meaning": "書類引渡条件（OTHERS）"
+      },
+      {
+       "id": "DWR",
+       "max": 70,
+       "meaning": "手形振出人名・住所（2）"
+      },
+      {
+       "id": "TNR",
+       "max": 35,
+       "meaning": "手形種別区分（その他）"
+      },
+      {
+       "id": "USC",
+       "max": 35,
+       "meaning": "ユーザンス・コード（その他）"
+      },
+      {
+       "id": "DTN",
+       "max": 35,
+       "meaning": "手形テナー（OTHERS）"
+      },
+      {
+       "id": "INT",
+       "max": 70,
+       "meaning": "THEIR INTEREST 計算情報"
+      },
+      {
+       "id": "nLC",
+       "max": 16,
+       "meaning": "信用状番号 (n=1,2,3,4)"
+      },
+      {
+       "id": "nUA",
+       "max": 19,
+       "meaning": "信用状使用金額（幣種3、小数点位置1、金額15） (n=1,2,3,4)"
+      }
+     ]
+    },
+    {
+     "item_no": 8,
+     "ja": "※送付銀行情報",
+     "ids": [
+      {
+       "id": "BRW",
+       "max": 177,
+       "meaning": "銀行名・支店名・住所"
+      },
+      {
+       "id": "BRN",
+       "max": 72,
+       "meaning": "銀行名"
+      },
+      {
+       "id": "BRB",
+       "max": 35,
+       "meaning": "支店名"
+      },
+      {
+       "id": "BRA",
+       "max": 70,
+       "meaning": "住所"
+      },
+      {
+       "id": "BRF",
+       "max": 35,
+       "meaning": "銀行REFERENCE"
+      }
+     ]
+    },
+    {
+     "item_no": 9,
+     "ja": "※書類内容",
+     "ids": [
+      {
+       "id": "MCD",
+       "max": 80,
+       "meaning": "商品名"
+      },
+      {
+       "id": "ORG",
+       "max": 35,
+       "meaning": "原産地"
+      },
+      {
+       "id": "PFR",
+       "max": 70,
+       "meaning": "積出港"
+      },
+      {
+       "id": "PTO",
+       "max": 70,
+       "meaning": "荷揚港"
+      },
+      {
+       "id": "VSL",
+       "max": 35,
+       "meaning": "船名"
+      },
+      {
+       "id": "BLN",
+       "max": 70,
+       "meaning": "B/L No."
+      }
+     ]
+    },
+    {
+     "item_no": 10,
+     "ja": "※書類通数",
+     "ids": [
+      {
+       "id": "DFT",
+       "max": 10,
+       "meaning": "DRAFT（付録5では(70)）"
+      },
+      {
+       "id": "INV",
+       "max": 10,
+       "meaning": "INVOICE（付録5では(70)）"
+      },
+      {
+       "id": "BLD",
+       "max": 10,
+       "meaning": "B/L"
+      },
+      {
+       "id": "AWB",
+       "max": 10,
+       "meaning": "AIR WAYBILL"
+      },
+      {
+       "id": "IPC",
+       "max": 10,
+       "meaning": "INSURANCE POLICY"
+      },
+      {
+       "id": "INS",
+       "max": 10,
+       "meaning": "CERTIFICATE OF INSPECTION"
+      },
+      {
+       "id": "WMC",
+       "max": 10,
+       "meaning": "WEIGHT AND MEASUREMENT LIST"
+      },
+      {
+       "id": "PKG",
+       "max": 10,
+       "meaning": "PACKING LIST"
+      },
+      {
+       "id": "ORC",
+       "max": 10,
+       "meaning": "CERTIFICATE OF ORIGIN"
+      },
+      {
+       "id": "CER",
+       "max": 10,
+       "meaning": "CERTIFICATE"
+      },
+      {
+       "id": "STA",
+       "max": 10,
+       "meaning": "STATEMENT"
+      },
+      {
+       "id": "OTH",
+       "max": 10,
+       "meaning": "OTHERS"
+      }
+     ]
+    },
+    {
+     "item_no": 11,
+     "ja": "※その他情報",
+     "ids": [
+      {
+       "id": "ACT",
+       "max": 70,
+       "meaning": "FOR ACCOUNT OF"
+      },
+      {
+       "id": "ILN",
+       "max": 70,
+       "meaning": "IMPORT LICENCE No."
+      },
+      {
+       "id": "nDS",
+       "max": 70,
+       "meaning": "DISCREPANCIES (n=1～9)"
+      },
+      {
+       "id": "nSP",
+       "max": 70,
+       "meaning": "SPECIAL INSTRUCTIONS (n=1～9)"
+      },
+      {
+       "id": "BAW",
+       "max": 177,
+       "meaning": "REIMBURSEMENT BANK 銀行名・支店名・住所"
+      },
+      {
+       "id": "BAN",
+       "max": 72,
+       "meaning": "REIMBURSEMENT BANK 銀行名"
+      },
+      {
+       "id": "BAB",
+       "max": 35,
+       "meaning": "REIMBURSEMENT BANK 支店名"
+      },
+      {
+       "id": "BAA",
+       "max": 70,
+       "meaning": "REIMBURSEMENT BANK 住所"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "06 被仕向送金到着案内（固定レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "06：被仕向送金到着案内（固定レコード）"
+    },
+    {
+     "name": "composition_kind",
+     "ja": "データ構成区分",
+     "k": "N",
+     "len": 2,
+     "note": "01：固定レコードのみ、02：固定レコード＋可変レコード、03：固定レコード＋利息・手数料、04：固定レコード＋可変レコード＋利息・手数料"
+    },
+    {
+     "name": "cancel_code",
+     "ja": "取消コード",
+     "k": "N",
+     "len": 1,
+     "note": "後続データ・レコードの入力種別。0：正常入力、9：取消入力"
+    },
+    {
+     "name": "seq_no",
+     "ja": "処理通番",
+     "k": "N",
+     "len": 4,
+     "note": "1連絡単位(ヘッダー単位)のシークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "bank_ref",
+     "ja": "※銀行照会番号（銀行レファレンス）",
+     "k": "C",
+     "len": 16,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "send_date",
+     "ja": "※仕向日",
+     "k": "N",
+     "len": 8,
+     "note": "送金の仕向日 YYYYMMDD"
+    },
+    {
+     "name": "receipt_date",
+     "ja": "※接受日",
+     "k": "N",
+     "len": 8,
+     "note": "被仕向送金の接受日 YYYYMMDD(原文「非仕向送金」)"
+    },
+    {
+     "name": "remit_kind",
+     "ja": "※送金種類区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：電信送金、2：郵便送金、9：その他"
+    },
+    {
+     "name": "value_date",
+     "ja": "※バリュー日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "remit_currency",
+     "ja": "金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "remit_decimals",
+     "ja": "金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "remit_amount",
+     "ja": "金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "被仕向送金金額。右詰め残り前「0」"
+    },
+    {
+     "name": "remitter_name",
+     "ja": "依頼人名",
+     "k": "C",
+     "len": 140,
+     "note": "送金依頼人名。左詰め残りスペース"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 40,
+     "note": "原文の項番は「22」(12の次なので13の誤植と思われる)"
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "66 被仕向送金到着案内（可変レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "66：被仕向送金到着案内（可変レコード）"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 4,
+     "note": "1つの被仕向送金到着案内（固定レコード）に続く可変レコードの数。右詰め残り前「0」"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 4,
+     "note": "シークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_count",
+     "ja": "可変項目数",
+     "k": "N",
+     "len": 2,
+     "note": "当該レコード中の項番7～16の可変項目数。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_len",
+     "ja": "可変項目有効桁数",
+     "k": "N",
+     "len": 3,
+     "note": "当該レコード中の項番7～16の可変項目の有効桁数合計(別表1の例ではID・レングス6桁を含めた合計)。右詰め残り前「0」"
+    },
+    {
+     "name": "variable_area",
+     "ja": "可変項目（項番7～16）＋ダミー（項番17、残り桁数）",
+     "k": "C",
+     "len": 234,
+     "note": "17桁目以降。可変項目を「ID英字3桁＋レングス数字3桁＋内容」で任意順に詰めて記録し、余白はダミー(SP)。可変項目は variable_items 参照"
+    }
+   ],
+   "variable_items": [
+    {
+     "item_no": 7,
+     "ja": "※送金銀行情報",
+     "ids": [
+      {
+       "id": "BSW",
+       "max": 177,
+       "meaning": "銀行名・支店名・住所"
+      },
+      {
+       "id": "BSN",
+       "max": 72,
+       "meaning": "銀行名"
+      },
+      {
+       "id": "BSB",
+       "max": 35,
+       "meaning": "支店名"
+      },
+      {
+       "id": "BSA",
+       "max": 70,
+       "meaning": "住所"
+      }
+     ]
+    },
+    {
+     "item_no": 8,
+     "ja": "※送金銀行照会番号",
+     "ids": [
+      {
+       "id": "BSF",
+       "max": 32,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 9,
+     "ja": "※送金受取人",
+     "ids": [
+      {
+       "id": "RBN",
+       "max": 40,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 10,
+     "ja": "※送金受取人口座番号",
+     "ids": [
+      {
+       "id": "ACN",
+       "max": 34,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 11,
+     "ja": "※メッセージ",
+     "ids": [
+      {
+       "id": "MSG",
+       "max": 140,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 12,
+     "ja": "※原取引金額",
+     "ids": [
+      {
+       "id": "ORA",
+       "max": 19,
+       "meaning": "幣種C(3)・小数点位置N(1)・金額N(15)右詰め残り前「0」"
+      }
+     ]
+    },
+    {
+     "item_no": 13,
+     "ja": "※換算相場",
+     "ids": [
+      {
+       "id": "EXR",
+       "max": 10,
+       "meaning": "通貨単位N(1)(1：1単位、3：100単位)・小数点位置N(1)・相場N(8)右詰め残り前「0」"
+      }
+     ]
+    },
+    {
+     "item_no": 14,
+     "ja": "※手数料負担区分",
+     "ids": [
+      {
+       "id": "DEC",
+       "max": 3,
+       "meaning": "C(3)。OUR：全てordering customerより徴収、BEN：全てbeneficiary customerより徴収、SHA：sender側、receiver側それぞれ徴収"
+      }
+     ]
+    },
+    {
+     "item_no": 15,
+     "ja": "※送金銀行手数料",
+     "ids": [
+      {
+       "id": "nSC",
+       "max": 19,
+       "meaning": "n=1～9。幣種C(3)・小数点位置N(1)・金額N(15)"
+      }
+     ]
+    },
+    {
+     "item_no": 16,
+     "ja": "※受信銀行手数料",
+     "ids": [
+      {
+       "id": "REC",
+       "max": 19,
+       "meaning": "幣種C(3)・小数点位置N(1)・金額N(15)"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "07 輸出手形経過情報（固定レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "07：輸出手形経過情報（固定レコード）"
+    },
+    {
+     "name": "composition_kind",
+     "ja": "データ構成区分",
+     "k": "N",
+     "len": 2,
+     "note": "01：固定レコードのみ、02：固定レコード＋可変レコード(利息・手数料の組合せはない)"
+    },
+    {
+     "name": "cancel_code",
+     "ja": "取消コード",
+     "k": "N",
+     "len": 1,
+     "note": "後続データ・レコードの入力種別。0：正常入力、9：取消入力"
+    },
+    {
+     "name": "seq_no",
+     "ja": "処理通番",
+     "k": "N",
+     "len": 4,
+     "note": "1連絡単位(ヘッダー単位)のシークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "bank_ref",
+     "ja": "※銀行照会番号（銀行レファレンス）",
+     "k": "C",
+     "len": 16,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "customer_ref",
+     "ja": "※取引先照会番号（取引先レファレンス）",
+     "k": "C",
+     "len": 32,
+     "note": "原手形について取引先が既に付番した照会用番号。左詰め残りスペース"
+    },
+    {
+     "name": "orig_bill_currency",
+     "ja": "※原手形金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "orig_bill_decimals",
+     "ja": "※原手形金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "orig_bill_amount",
+     "ja": "※原手形金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "原手形金額。右詰め残り前「0」"
+    },
+    {
+     "name": "orig_nego_date",
+     "ja": "※原手形買取日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "tenor_unit",
+     "ja": "※手形テナー(1)表示区分",
+     "k": "C",
+     "len": 1,
+     "note": "D：DAY、M：MONTH、X：OTHERS"
+    },
+    {
+     "name": "tenor_count",
+     "ja": "※手形テナー(2)日数または月数",
+     "k": "N",
+     "len": 3,
+     "note": "右詰め残り前「0」。OTHERSの場合は「XXX」(N項目だが英字が入る)"
+    },
+    {
+     "name": "tenor",
+     "ja": "※手形テナー(3)テナー",
+     "k": "C",
+     "len": 2,
+     "note": "BL：AFTER B/L、BF：FROM B/L、BE：AFTER DATE OF BILL OF EXCHANGE、CC：AFTER CUSTOMS CLEARANCE OF GOODS、FD：AFTER GOODS PASS FOOD AND DRUG ADMINISTRATION、FP：FIRST PRESENTATION、GA：AFTER GOODS’ ARRIVAL、ID：AFTER INVOICE DATE、ST：AFTER SIGHT、XX：OTHERS"
+    },
+    {
+     "name": "est_due_date",
+     "ja": "※推定期日",
+     "k": "N",
+     "len": 8,
+     "note": "原手形テナーに基づく推定期日 YYYYMMDD"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 9,
+     "note": ""
+    },
+    {
+     "name": "lc_no",
+     "ja": "※信用状番号",
+     "k": "C",
+     "len": 32,
+     "note": "左詰め残りスペース"
+    },
+    {
+     "name": "sent_date",
+     "ja": "※発信日",
+     "k": "N",
+     "len": 8,
+     "note": "先方の発信日 YYYYMMDD"
+    },
+    {
+     "name": "input_date",
+     "ja": "入力日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "receipt_method",
+     "ja": "※接受方法",
+     "k": "N",
+     "len": 1,
+     "note": "1：電信、2：郵便"
+    },
+    {
+     "name": "notice_kind",
+     "ja": "種別",
+     "k": "N",
+     "len": 1,
+     "note": "1：決済通知、2：支払通知、3：引受通知、4：支払拒絶通知、5：引受拒絶通知、9：その他"
+    },
+    {
+     "name": "pay_accept_kind",
+     "ja": "※支払／引受区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：支払（回金）、2：現地通貨支払、3：支払（小切手）、4：引受、5：支払確約、9：その他"
+    },
+    {
+     "name": "refusal_kind",
+     "ja": "※支払／引受拒絶区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：支払拒絶、2：引受拒絶、3：補償銀行支払拒絶、4：補償銀行引受拒絶、5：FIRST PRESENTATION UNPAID、9：その他"
+    },
+    {
+     "name": "pay_date",
+     "ja": "※支払実行日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "pay_currency",
+     "ja": "※支払金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "pay_decimals",
+     "ja": "※支払金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "pay_amount",
+     "ja": "※支払金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "支払金額。右詰め残り前「0」"
+    },
+    {
+     "name": "accept_date",
+     "ja": "※引受日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "fixed_due_date",
+     "ja": "※確定期日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "settle_date",
+     "ja": "※決済日",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "settle_currency",
+     "ja": "※決済金額(1)幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "settle_decimals",
+     "ja": "※決済金額(2)小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "settle_amount",
+     "ja": "※決済金額(3)金額",
+     "k": "N",
+     "len": 15,
+     "note": "決済金額。右詰め残り前「0」"
+    },
+    {
+     "name": "buyer_code",
+     "ja": "※バイヤー・コード",
+     "k": "N",
+     "len": 10,
+     "note": "経済産業省制定のバイヤー・コード。国コード＋バイヤー・コード＋枝番(各桁数は原文の図から確定できない)"
+    },
+    {
+     "name": "dummy2",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 10,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "67 輸出手形経過情報（可変レコード）",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "67：輸出手形経過情報（可変レコード）"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 4,
+     "note": "1つの輸出手形経過情報（固定レコード）に続く可変レコードの数。右詰め残り前「0」"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 4,
+     "note": "シークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_count",
+     "ja": "可変項目数",
+     "k": "N",
+     "len": 2,
+     "note": "当該レコード中の項番7～9の可変項目数。右詰め残り前「0」"
+    },
+    {
+     "name": "var_item_len",
+     "ja": "可変項目有効桁数",
+     "k": "N",
+     "len": 3,
+     "note": "当該レコード中の項番7～9の可変項目の有効桁数合計(別表1の例ではID・レングス6桁を含めた合計)。右詰め残り前「0」"
+    },
+    {
+     "name": "variable_area",
+     "ja": "可変項目（項番7～9）＋ダミー（項番10、残り桁数）",
+     "k": "C",
+     "len": 234,
+     "note": "17桁目以降。可変項目を「ID英字3桁＋レングス数字3桁＋内容」で任意順に詰めて記録し、余白はダミー(SP)。可変項目は variable_items 参照"
+    }
+   ],
+   "variable_items": [
+    {
+     "item_no": 7,
+     "ja": "※支払／引受拒絶銀行",
+     "ids": [
+      {
+       "id": "BIW",
+       "max": 177,
+       "meaning": "銀行名・支店名・住所"
+      },
+      {
+       "id": "BIN",
+       "max": 72,
+       "meaning": "銀行名"
+      },
+      {
+       "id": "BIB",
+       "max": 35,
+       "meaning": "支店名"
+      },
+      {
+       "id": "BIA",
+       "max": 70,
+       "meaning": "住所"
+      },
+      {
+       "id": "BIF",
+       "max": 35,
+       "meaning": "銀行REFERENCE No."
+      }
+     ]
+    },
+    {
+     "item_no": 8,
+     "ja": "※バイヤー（手形支払人）名・住所",
+     "ids": [
+      {
+       "id": "PCN",
+       "max": 160,
+       "meaning": ""
+      }
+     ]
+    },
+    {
+     "item_no": 9,
+     "ja": "※その他情報",
+     "ids": [
+      {
+       "id": "OTH",
+       "max": 100,
+       "meaning": "固定レコードの「OTHERS」「その他」の内容を記録可"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "data",
+   "variant": "92 利息・手数料",
+   "variant_rule": "データ区分=2 かつ データ・レコード区分(項番2)の値で判別",
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "2：データ・レコード"
+    },
+    {
+     "name": "record_kind",
+     "ja": "データ・レコード区分",
+     "k": "N",
+     "len": 2,
+     "note": "92：利息・手数料"
+    },
+    {
+     "name": "same_kind_count",
+     "ja": "同一種類データ・レコード数",
+     "k": "N",
+     "len": 2,
+     "note": "1つの固定レコードに続く利息・手数料レコードの数。右詰め残り前「0」"
+    },
+    {
+     "name": "same_kind_no",
+     "ja": "同一種類データ・レコード番号",
+     "k": "N",
+     "len": 2,
+     "note": "同一種類データ・レコードのシークェンス番号。右詰め残り前「0」"
+    },
+    {
+     "name": "int_code",
+     "ja": "利息(1)取引区分",
+     "k": "N",
+     "len": 2,
+     "note": "利息の種類。別表(5)利息コード表(付録7.-3)参照(会計性では項目名「利息区分」)"
+    },
+    {
+     "name": "int_rate_kind",
+     "ja": "※利息(2)利率・料率区分",
+     "k": "N",
+     "len": 1,
+     "note": "0：定額(この場合(3)～(8)はSP)、1：利率、2：料率、3：分数表示"
+    },
+    {
+     "name": "int_rate",
+     "ja": "※利息(3)利率・料率",
+     "k": "N",
+     "len": 8,
+     "note": "利率は年利率を小数点以下5桁(XXX.XXXXX、例 099.99999%)。料率を外貨1に対する円貨で表す場合も小数点以下5桁(例 999.99999円)。分数表示は上3桁=分子、下5桁=分母(例「00300064」=3/64)"
+    },
+    {
+     "name": "int_year_days",
+     "ja": "※利息(4)年日数区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：365日、2：360日"
+    },
+    {
+     "name": "int_calc_kind",
+     "ja": "※利息(5)利息計算区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：両端入れ、2：片端入れ(原文は「端入れ」)"
+    },
+    {
+     "name": "int_days",
+     "ja": "※利息(6)利息日数",
+     "k": "N",
+     "len": 4,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "int_from",
+     "ja": "※利息(7)利息始期",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "int_to",
+     "ja": "※利息(8)利息終期",
+     "k": "N",
+     "len": 8,
+     "note": "YYYYMMDD"
+    },
+    {
+     "name": "int_fc_currency",
+     "ja": "※利息(9)利息外貨額①幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "int_fc_decimals",
+     "ja": "※利息(9)利息外貨額②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "int_fc_amount",
+     "ja": "※利息(9)利息外貨額③金額",
+     "k": "N",
+     "len": 12,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "int_conv_unit",
+     "ja": "※利息(10)換算相場①通貨単位",
+     "k": "N",
+     "len": 1,
+     "note": "1：1単位、3：100単位"
+    },
+    {
+     "name": "int_conv_decimals",
+     "ja": "※利息(10)換算相場②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "int_conv_rate",
+     "ja": "※利息(10)換算相場③相場",
+     "k": "N",
+     "len": 8,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "int_rounding",
+     "ja": "※利息(11)端数処理",
+     "k": "N",
+     "len": 1,
+     "note": "1：切捨て、2：切上げ、3：四捨五入、9：その他"
+    },
+    {
+     "name": "int_jpy_amount",
+     "ja": "※利息(12)利息円貨額",
+     "k": "N",
+     "len": 12,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "int_collect_kind",
+     "ja": "※利息(13)徴求区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：即時徴求、2：即時（本体外貨合算）徴求、3：別途徴求（当日）、4：別途徴求（後日）、9：その他"
+    },
+    {
+     "name": "fee1_code",
+     "ja": "手数料(1)(1)手数料区分",
+     "k": "N",
+     "len": 2,
+     "note": "別表(6)手数料コード表(付録7.-4)参照"
+    },
+    {
+     "name": "fee1_rate_kind",
+     "ja": "※手数料(1)(2)利率・料率区分",
+     "k": "N",
+     "len": 1,
+     "note": "0：定額(この場合(3)～(5)はSP)、1：利率、2：料率、3：分数表示"
+    },
+    {
+     "name": "fee1_rate",
+     "ja": "※手数料(1)(3)利率・料率",
+     "k": "N",
+     "len": 8,
+     "note": "利率は年利率を小数点以下5桁(XXX.XXXXX、例 099.99999%)。料率を外貨1に対する円貨で表す場合も小数点以下5桁(例 999.99999円)。分数表示は上3桁=分子、下5桁=分母(例「00300064」=3/64)"
+    },
+    {
+     "name": "fee1_fc_currency",
+     "ja": "※手数料(1)(4)手数料外貨額①幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "fee1_fc_decimals",
+     "ja": "※手数料(1)(4)手数料外貨額②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "fee1_fc_amount",
+     "ja": "※手数料(1)(4)手数料外貨額③金額",
+     "k": "N",
+     "len": 10,
+     "note": "手数料外貨額。右詰め残り前「0」"
+    },
+    {
+     "name": "fee1_conv_unit",
+     "ja": "※手数料(1)(5)換算相場①通貨単位",
+     "k": "N",
+     "len": 1,
+     "note": "1：1単位、3：100単位"
+    },
+    {
+     "name": "fee1_conv_decimals",
+     "ja": "※手数料(1)(5)換算相場②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "fee1_conv_rate",
+     "ja": "※手数料(1)(5)換算相場③相場",
+     "k": "N",
+     "len": 8,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "fee1_jpy_amount",
+     "ja": "※手数料(1)(6)手数料円貨額",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "fee1_collect_kind",
+     "ja": "※手数料(1)(7)徴求区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：即時徴求、2：即時（本体外貨合算）徴求、3：別途徴求（当日）、4：別途徴求（後日）、9：その他"
+    },
+    {
+     "name": "fee2_code",
+     "ja": "手数料(2)(1)手数料区分",
+     "k": "N",
+     "len": 2,
+     "note": "別表(6)手数料コード表(付録7.-4)参照"
+    },
+    {
+     "name": "fee2_rate_kind",
+     "ja": "※手数料(2)(2)利率・料率区分",
+     "k": "N",
+     "len": 1,
+     "note": "0：定額(この場合(3)～(5)はSP)、1：利率、2：料率、3：分数表示"
+    },
+    {
+     "name": "fee2_rate",
+     "ja": "※手数料(2)(3)利率・料率",
+     "k": "N",
+     "len": 8,
+     "note": "利率は年利率を小数点以下5桁(XXX.XXXXX、例 099.99999%)。料率を外貨1に対する円貨で表す場合も小数点以下5桁(例 999.99999円)。分数表示は上3桁=分子、下5桁=分母(例「00300064」=3/64)"
+    },
+    {
+     "name": "fee2_fc_currency",
+     "ja": "※手数料(2)(4)手数料外貨額①幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "fee2_fc_decimals",
+     "ja": "※手数料(2)(4)手数料外貨額②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "fee2_fc_amount",
+     "ja": "※手数料(2)(4)手数料外貨額③金額",
+     "k": "N",
+     "len": 10,
+     "note": "手数料外貨額。右詰め残り前「0」"
+    },
+    {
+     "name": "fee2_conv_unit",
+     "ja": "※手数料(2)(5)換算相場①通貨単位",
+     "k": "N",
+     "len": 1,
+     "note": "1：1単位、3：100単位"
+    },
+    {
+     "name": "fee2_conv_decimals",
+     "ja": "※手数料(2)(5)換算相場②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "fee2_conv_rate",
+     "ja": "※手数料(2)(5)換算相場③相場",
+     "k": "N",
+     "len": 8,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "fee2_jpy_amount",
+     "ja": "※手数料(2)(6)手数料円貨額",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "fee2_collect_kind",
+     "ja": "※手数料(2)(7)徴求区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：即時徴求、2：即時（本体外貨合算）徴求、3：別途徴求（当日）、4：別途徴求（後日）、9：その他"
+    },
+    {
+     "name": "fee3_code",
+     "ja": "手数料(3)(1)手数料区分",
+     "k": "N",
+     "len": 2,
+     "note": "別表(6)手数料コード表(付録7.-4)参照"
+    },
+    {
+     "name": "fee3_rate_kind",
+     "ja": "※手数料(3)(2)利率・料率区分",
+     "k": "N",
+     "len": 1,
+     "note": "0：定額(この場合(3)～(5)はSP)、1：利率、2：料率、3：分数表示"
+    },
+    {
+     "name": "fee3_rate",
+     "ja": "※手数料(3)(3)利率・料率",
+     "k": "N",
+     "len": 8,
+     "note": "利率は年利率を小数点以下5桁(XXX.XXXXX、例 099.99999%)。料率を外貨1に対する円貨で表す場合も小数点以下5桁(例 999.99999円)。分数表示は上3桁=分子、下5桁=分母(例「00300064」=3/64)"
+    },
+    {
+     "name": "fee3_fc_currency",
+     "ja": "※手数料(3)(4)手数料外貨額①幣種",
+     "k": "C",
+     "len": 3,
+     "note": "別表(1)幣種コード表(付録6)参照。表示できない場合は「999」"
+    },
+    {
+     "name": "fee3_fc_decimals",
+     "ja": "※手数料(3)(4)手数料外貨額②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "fee3_fc_amount",
+     "ja": "※手数料(3)(4)手数料外貨額③金額",
+     "k": "N",
+     "len": 10,
+     "note": "手数料外貨額。右詰め残り前「0」"
+    },
+    {
+     "name": "fee3_conv_unit",
+     "ja": "※手数料(3)(5)換算相場①通貨単位",
+     "k": "N",
+     "len": 1,
+     "note": "1：1単位、3：100単位"
+    },
+    {
+     "name": "fee3_conv_decimals",
+     "ja": "※手数料(3)(5)換算相場②小数点位置",
+     "k": "N",
+     "len": 1,
+     "note": "小数点以下桁数"
+    },
+    {
+     "name": "fee3_conv_rate",
+     "ja": "※手数料(3)(5)換算相場③相場",
+     "k": "N",
+     "len": 8,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "fee3_jpy_amount",
+     "ja": "※手数料(3)(6)手数料円貨額",
+     "k": "N",
+     "len": 10,
+     "note": "右詰め残り前「0」"
+    },
+    {
+     "name": "fee3_collect_kind",
+     "ja": "※手数料(3)(7)徴求区分",
+     "k": "N",
+     "len": 1,
+     "note": "1：即時徴求、2：即時（本体外貨合算）徴求、3：別途徴求（当日）、4：別途徴求（後日）、9：その他"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 32,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "trailer",
+   "variant": null,
+   "variant_rule": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "8：トレーラ・レコード"
+    },
+    {
+     "name": "record_count",
+     "ja": "データ・レコード件数",
+     "k": "N",
+     "len": 6,
+     "note": "データ・レコードの総件数。右詰め残り前「0」"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 243,
+     "note": ""
+    }
+   ]
+  },
+  {
+   "kind": "end",
+   "variant": null,
+   "variant_rule": null,
+   "fields": [
+    {
+     "name": "data_kind",
+     "ja": "データ区分",
+     "k": "N",
+     "len": 1,
+     "note": "9：エンド・レコード"
+    },
+    {
+     "name": "total_count",
+     "ja": "レコード総件数",
+     "k": "N",
+     "len": 6,
+     "note": "レコードの総件数。右詰め残り前「0」"
+    },
+    {
+     "name": "dummy",
+     "ja": "ダミー",
+     "k": "C",
+     "len": 243,
+     "note": ""
+    }
+   ]
+  }
+ ],
+ "notes": "全レコード250バイト固定長。※印の項目は銀行により/場合により省略可(省略時は全てSP)。数値項目でもSP埋めになる場合が多い(N項目でも空白を許容する実装が必要)。ダミーは将来の拡張用で任意使用不可。金額は「幣種C(3)＋小数点位置N(1)＋金額N(n)」の組で、金額は小数点なしの整数表記で小数点以下桁数を小数点位置で示す(例：小数点位置2・金額000000000012345 = 123.45)。符号欄は無い。換算相場・予約相場は「通貨単位N(1)(1：1単位、3：100単位。例 100リラ=14.17円なら3)＋小数点位置N(1)＋相場N(8)」。預金口座番号は外貨預金で7桁超があるため10桁。預金種目は別表(4)=付録3参照。コード区分は付録1参照。トレーラのデータ・レコード件数はヘッダー〜トレーラ間のデータ・レコード総件数、エンドのレコード総件数はファイル全体のレコード数(ヘッダー/トレーラ/エンド含むと解されるが原文は「レコードの総件数」とのみ記載)。トレーラに金額合計は無い。1ファイルに複数のヘッダー〜トレーラ群を持てる(取引情報区分ごとに H…T を繰り返し、最後に E 1件)。処理通番はヘッダー単位で1から振り直す。【非会計性固有】取引情報区分 620/630/660/670 ごとに 固定レコード(02/03/06/07)＋可変レコード(62/63/66/67)*＋利息・手数料(92)* の組合せ。輸出手形経過情報(670)には利息・手数料の組合せはない。各取引の内容はデータ・レコード区分(項番2)で判別。可変レコード：1〜16桁目(項番1〜6)が固定、17桁目以降(234桁)に可変項目を「ID(英字3桁)＋レングス(数字3桁、=内容の有効文字桁数)＋内容」で任意順に詰め、余白はSP。IDの'999'表記は実際のレングス3桁で置き換える(例 DLC021、MCT001)。IDの頭のnは連番(例 1AD、2DS)。可変項目数=当該レコード内の項目数、可変項目有効桁数=当該レコード内の可変項目の合計桁数で、別表1の例(8項目・228)ではID+レングス6桁を含む合計(228+16+ダミー6=250)。可変項目が多ければ可変レコードを複数(同一種類データ・レコード数/番号)にする。レコードを跨いで1項目を分割できるかは記載なし。付録5 可変項目一覧表：本書式で使うIDと最大桁数の一覧(各可変レコードの variable_items に転記済み)。付録5には外国送金依頼/L/C発行依頼用ID(BNN,BNA,ACT(34),BAN(35),BAB,BAA,APN,MSG,CVN,ADC)も含まれ、ACT/BAN等は本書式と同IDで最大桁数が異なる(フォーマットごとに解釈)。不一致：書類通数のDFT/INVの最大桁数は本文(p132)では(10)、付録5では(70)。本JSONは本文に従い10とした。手形テナーの日数または月数はN(3)だがOTHERSの場合「XXX」をセットする。被仕向送金到着案内(06)のダミーは原文で項番22と印字(誤植と思われる)。利息・手数料(92)は会計性と同一構成。付録6 幣種コード表(別表(1))：コード一覧の表は掲載されていない。「幣種コードはISOのホームページを参照」とだけあり(ISO 4217の英字3桁、例 USD/EUR/JPY)、幣種項目はC(3)。表示できない場合は「999」。別表(1)の見出しは「SWIFTコードによる代表例」。付録7.-1 相場コード表(別表(2)、項目「相場種類」)：01 電信買相場、02 L/C付一覧払輸出手形買相場、03 ユーザンス相場、04 L/Cなし一覧払輸出手形買相場、05 電信売相場、06 アクセプタンス・レート、07 現金買相場、08 現金売相場、99 その他。付録7.-2 テナー・コード表(別表(3))：01 一覧払、02 一覧後定期払、03 日付後定期払(After/Fromの区分がない場合)、04 確定日払、05 日付後定期払(After)、06 日付後定期払(From)、99 その他。付録7.-3 利息コード表(別表(5))：00 セットなし、01 ユーザンス利息(円為替利息を含む)、02 メール期間利息、03 期日後利息、04 Their Interest(先方利息)、30 保証料、99 その他利息。付録7.-4 手数料コード表(別表(6))：00 セットなし、01 郵便料、02 電信料、03 郵便・電信料、04 最低手数料、05 外貨受払手数料、06 円為替取扱手数料、07 外国通貨取扱手数料、08 旅行小切手売却手数料、09 印紙税、10 税金、20 輸出信用状通知手数料、21 輸出信用状確認手数料、22 輸出信用状条件変更手数料、23 輸出信用状譲渡手数料、30 輸出手形再割手数料、31 輸出手形取立取扱手数料、32 引受手数料、33 支払手数料、34 輸出手形保険手数料(経済産業省)、35 輸出手形保険手数料(地方公共団体)、36 輸出手形保険手数料(合算)、37 輸出手形保険関係手数料、38 クリーン手形買取手数料、39 クリーン手形取立取扱手数料、40 リインバースメント・コミッション、41 信用状なし輸出手形買取手数料、42 トレーサー手数料、50 輸入手形取立取扱手数料、51 THEIR CHARGE、52 THEIR POSTAGE、53 輸入取立手形転送手数料、54 THEIR CABLE CHARGE、55 THEIR POSTAGE & CABLE CHARGE、56 THEIR ACCEPTANCE COMMISSION、57 THEIR DISCOUNT CHARGE、58 輸入ユーザンス期限延長手数料、59 輸入手形取立取消手数料、60 通知銀行関係手数料、61 輸入信用状開設手数料、62 輸入信用状条件変更手数料、65 保証状発行手数料、66 保証状条件変更手数料、67 保証状発行関係手数料(その他銀行)、70 送金手数料、71 支払銀行手数料、72 組戻手数料、73 外貨預金付替手数料、80 為替予約変更取扱手数料、81 為替予約変更・取消手数料、82 オプション料、90 輸出取引関係手数料、91 輸入取引関係手数料、92 保証関係手数料、93 外国送金取引関係手数料、94 為替予約関係手数料、99 その他手数料。"
+}

@@ -2,6 +2,13 @@
 
 ## 未リリース
 
+- 追加: 別冊の 32 業務すべてのレコードのレイアウト。別冊の表を書き写した `formats/*.json` から、`scripts/gen-formats.py` で `src/formats.rs` を生成する (CI で生成し直して差分がないことを確かめる)。
+  データ・レコードの様式が複数ある業務、1ファイルに複数のヘッダーの組がある業務、業務ごとのトレーラの集計の検査に対応した。`Parsed` に `groups` と `end` を加えた。
+- 追加: 銀行ノードの業務処理 (`src/bank/biz.rs`)。振込系の業務 (賞与、地方公務員の給与・賞与、株式配当、年金、医療保険) を振込として処理。
+  口座の取引の履歴を記録し、入出金取引明細・残高通知を照会で返す。振込口座照会・預金口座振替・財形貯蓄の依頼を処理し、結果を照会で返す。
+  外国送金依頼・荷為替輸入信用状発行依頼は受け付けて記録する。そのほかの照会の業務は、担当者が `zengin bank publish` で登録したファイルを渡す。
+- 追加: CLI の `gen`・`send`・`fetch` を全業務に対応 (`--kind`、`--set`、`--rec`)。`zengin show`、`zengin kinds`、`zengin bank publish`、`zengin bank inbox`。
+- 追加: 銀行の設定の `[account]` に `name` (名義)。`examples/bank1.conf` に個人の口座を1つ加えた。
 - 追加: 市販品の拡張の可変長レコード (レコードID 1・2) と、2048 を超えるテキスト (受けるときは 32,767 まで。送るときは `--text-len`)。`InFile`・`OutFile` に `rec_id` を加えた。レコードID が 3 以上なら 18 を返す。
 - 追加: TTC の接続形態区分を 0 (ベーシック手順) にする `--basic`、二次局のサービス時間帯 `--hours HHMM-HHMM` (外の開局要求に 13)、銀行の設定 `duplicate = reject` (受信済みのファイルに 16)。
 - 追加: `docs/tls.md` (stunnel などの TLS 終端を前に置いて、SSL/TLS 方式で使う方法) と、標準ライブラリだけで動く TLS 終端 `scripts/tls-relay.py`。

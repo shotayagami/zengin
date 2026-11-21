@@ -1,4 +1,5 @@
-//! 銀行ノード: 企業の総合振込・給与振込を受け付けて為替通知にし、全銀ネットから来た為替通知を口座に反映する。
+//! 銀行ノード: 企業の振込の依頼を受け付けて為替通知にし、全銀ネットから来た為替通知を口座に反映する。
+//! 振込以外の業務 (入出金取引明細、口座振替など) は `biz`。
 //! docs/spec-net.md §4。
 
 use crate::charcode::Code;
@@ -7,7 +8,7 @@ use crate::control::{CenterCode, FILE_NAME_ERR, FileCtl, OTHER_ERR, RECORD_LEN_E
 use crate::exchange::*;
 use crate::handler::{Handler, InFile, OutFile, PeerCfg};
 use crate::net::connect;
-use crate::record::{FileKind, Parsed, fmt, kind_from_name, name_chars_ok};
+use crate::record::{FileKind, Parsed, fmt, kind_from_name, kind_from_name_mode, name_chars_ok};
 use crate::server::Server;
 use crate::session::{Opts, send_file};
 use crate::store::Store;
@@ -16,6 +17,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+mod biz;
+
+pub use biz::TRANSFER_KINDS;
+use biz::{Biz, TXN_OTHER, TXN_TRANSFER};
 
 const WHO: &str = "銀行";
 const NET: &str = "net";
@@ -116,6 +122,8 @@ pub struct BankState {
     inflight: HashMap<String, Vec<u64>>,
     /// 最後に渡し終えた振込入金通知のファイル (企業ごと)。再送要求で、もう一度渡すために残す
     last_notice: HashMap<String, Vec<u8>>,
+    /// 振込以外の業務の状態
+    biz: Biz,
 }
 
 fn acct_str(k: &AcctKey) -> String {
@@ -169,6 +177,7 @@ impl BankState {
             cycles: HashMap::new(),
             inflight: HashMap::new(),
             last_notice: HashMap::new(),
+            biz: Biz::default(),
         }
     }
 
@@ -248,7 +257,15 @@ impl BankState {
         }
         for sec in conf.of_kind("account") {
             let opening = sec.get("balance").map_or(Ok(0), |v| num(v, "balance"))?;
-            b.add_account(acct_of(sec, "number")?, &sec.name, small::<i64>(opening, "balance")?);
+            // 名義 (半角カナなど)。振込口座照会で、受取人名と照らし合わせる。省略時はセクション名
+            let name = sec.get("name").unwrap_or(&sec.name);
+            if !name_chars_ok(name) || name.chars().count() > 30 {
+                return proto(format!(
+                    "[account {}] の name は半角カナ・英大文字・数字などで30文字以内: {name:?}",
+                    sec.name
+                ));
+            }
+            b.add_account(acct_of(sec, "number")?, name, small::<i64>(opening, "balance")?);
         }
         b.load()?;
         Ok(b)
@@ -388,7 +405,7 @@ impl BankState {
                 None => return corrupt("lastnotice.tsv", &l),
             };
         }
-        Ok(())
+        self.load_biz()
     }
 
     fn save(&self) {
@@ -464,6 +481,11 @@ impl BankState {
                 eprintln!("[{WHO}] {name} の保存に失敗: {e}");
             }
         }
+        for (name, lines) in self.biz_files() {
+            if let Err(e) = self.store.write(name, &lines) {
+                eprintln!("[{WHO}] {name} の保存に失敗: {e}");
+            }
+        }
     }
 
     // ---- 口座 ----
@@ -504,9 +526,8 @@ impl BankState {
 
     /// 口座に入金する。企業の口座なら、振込入金通知の待ち行列にも積む。
     fn credit(&mut self, key: &AcctKey, amount: u64, origin: Option<Origin>) {
-        if let Some(a) = self.accounts.get_mut(key) {
-            a.balance += amount as i64;
-        }
+        let desc = origin.as_ref().map_or("ﾍﾝｷﾔｸ".to_string(), |o| o.client_name.clone());
+        self.post(key, amount as i64, TXN_TRANSFER, &desc);
         if let (Some(o), Some(company)) = (origin, self.company_of(key).map(|c| c.name.clone())) {
             self.push_notice(company, amount, o, false);
         }
@@ -519,13 +540,8 @@ impl BankState {
         format!("{company}\t{}\t{:016x}", self.clock.now().ymd(), fingerprint(&[&f.name, &f.data]))
     }
 
-    fn process_company_file(&mut self, company: &Company, f: &InFile, kind: FileKind, p: &Parsed) {
+    fn process_company_file(&mut self, company: &Company, kind: FileKind, p: &Parsed) {
         let who = company.name.clone();
-        // 企業が閉局回答を受け取れずに同じファイルを再送しても、二重に引き落とさない
-        if !self.files_seen.insert(self.file_fp(&company.name, f)) {
-            self.log(&format!("{who}: 同じファイルを再受信したので無視した"));
-            return;
-        }
         let client_name = p.header.get("client_name").to_string();
         for d in &p.data {
             let amount = d.num("amount");
@@ -546,7 +562,7 @@ impl BankState {
                 ));
                 continue;
             }
-            self.accounts.get_mut(&company.acct).unwrap().balance -= amount as i64;
+            self.post(&company.acct, -(amount as i64), TXN_TRANSFER, d.get("name"));
             let dst_key: AcctKey = (dst_branch, dst_kind, dst_no.clone());
             if dst_bank == self.bank_no {
                 // 自行内: 全銀ネットを通さない
@@ -562,7 +578,7 @@ impl BankState {
                     self.credit(&dst_key, amount, Some(o));
                     self.log(&format!("{who}: 自行内振込 {amount} 円 → {}", acct_text(&dst_key)));
                 } else {
-                    self.accounts.get_mut(&company.acct).unwrap().balance += amount as i64;
+                    self.post(&company.acct, amount as i64, TXN_TRANSFER, "ﾓﾄﾞｼ");
                     self.log(&format!("{who}: 自行内の口座がないため {amount} 円を戻した"));
                 }
                 continue;
@@ -706,7 +722,7 @@ impl BankState {
         let found = self.credited.get(&(r.src_bank, r.handling_no)).cloned();
         let reply = match found {
             Some(c) if !c.recalled && self.balance(&c.acct).unwrap_or(0) >= c.amount as i64 => {
-                self.accounts.get_mut(&c.acct).unwrap().balance -= c.amount as i64;
+                self.post(&c.acct, -(c.amount as i64), TXN_OTHER, "ｸﾐﾓﾄﾞｼ");
                 self.credited.get_mut(&(r.src_bank, r.handling_no)).unwrap().recalled = true;
                 self.cancel_notice(&r, &c);
                 self.log(&format!("組戻しを承諾: 取扱番号 {} {} 円", r.handling_no, c.amount));
@@ -785,6 +801,11 @@ impl BankState {
 
     /// CLI が書いた組戻依頼のファイルを取り込む。
     pub fn take_requests(&mut self) {
+        self.take_recall_requests();
+        self.take_publish_requests();
+    }
+
+    fn take_recall_requests(&mut self) {
         let lines = match self.store.take("recall-requests.tsv") {
             Ok(Some(l)) => l,
             Ok(None) => return,
@@ -803,6 +824,34 @@ impl BankState {
         self.store.done("recall-requests.tsv");
     }
 
+    fn take_publish_requests(&mut self) {
+        // 担当者が登録した照会用のファイル (zengin bank publish): 企業 \t 識別部 \t 16進
+        let lines = match self.store.take("publish-requests.tsv") {
+            Ok(Some(l)) => l,
+            Ok(None) => return,
+            Err(e) => return self.log(&format!("登録されたファイルを取り出せない: {e}")),
+        };
+        for l in lines {
+            let f: Vec<&str> = l.split('\t').collect();
+            let data = f.get(2).and_then(|h| {
+                (0..h.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok())
+                    .collect()
+            });
+            match (f.len(), data) {
+                (3, Some(data)) => {
+                    if let Err(e) = self.publish(f[0], f[1], data) {
+                        self.log(&format!("登録されたファイルを積めない: {e}"));
+                    }
+                }
+                _ => self.log("登録されたファイルの行が不正"),
+            }
+        }
+        self.store.done("publish-requests.tsv");
+        self.save();
+    }
+
     /// 為替通知のファイルを作れない為替通知を、送信待ちから外して記録する。
     /// 振込なら、引き落とした資金を企業の口座へ戻す。
     fn quarantine(&mut self, bad: &[(Item, String)]) {
@@ -817,9 +866,7 @@ impl BankState {
                 if let Some(s) = self.sent.get_mut(&t.handling_no).filter(|s| s.status == "sent") {
                     s.status = "failed".into();
                     let key = s.acct.clone();
-                    if let Some(a) = self.accounts.get_mut(&key) {
-                        a.balance += t.amount as i64;
-                    }
+                    self.post(&key, t.amount as i64, TXN_TRANSFER, "ﾓﾄﾞｼ");
                 }
             }
             if let Some(p) = self.outq.iter().position(|x| x == item) {
@@ -941,7 +988,8 @@ impl Handler for BankState {
         let allowed = if peer.name == NET {
             matches!(fm.kind, FileKind::Ex91 | FileKind::Ex92 | FileKind::Ex93 | FileKind::Ex94)
         } else {
-            matches!(fm.kind, FileKind::Sogo | FileKind::Kyuyo)
+            // 企業からは、連絡モードの業務ならどれでも (為替通知を除く)
+            !fm.inquiry && !matches!(fm.kind, FileKind::Ex91 | FileKind::Ex92 | FileKind::Ex93 | FileKind::Ex94)
         };
         if !allowed {
             return Err(FILE_NAME_ERR);
@@ -977,12 +1025,17 @@ impl Handler for BankState {
             self.log(&format!("{}: 受信済みのファイルなので、二重ファイル伝送として拒否した", peer.name));
             return Err(crate::control::DUPLICATE_FILE);
         }
-        if p.header.num("client_code") != c.code {
+        // ヘッダの企業のコード (業務によって項目名が違う)
+        let code_field = ["client_code", "remitter_code", "company_code"]
+            .into_iter()
+            .find(|f| p.header.has(f));
+        if code_field.is_some_and(|f| p.header.num(f) != c.code) {
             self.log(&format!("{}: ヘッダの企業コードが登録と違う", peer.name));
             return Err(OTHER_ERR);
         }
-        // 人名欄の文字の制限 (別冊 付録1 の注1)
-        if !name_chars_ok(p.header.get("client_name")) || p.data.iter().any(|d| !name_chars_ok(d.get("name"))) {
+        // 人名欄の文字の制限 (別冊 付録1 の注1)。振込の業務だけ
+        let transfer = TRANSFER_KINDS.contains(&fm.kind);
+        if transfer && (!name_chars_ok(p.header.get("client_name")) || p.data.iter().any(|d| !name_chars_ok(d.get("name")))) {
             self.log(&format!("{}: 人名欄に使えない文字がある", peer.name));
             return Err(OTHER_ERR);
         }
@@ -998,7 +1051,17 @@ impl Handler for BankState {
                 self.process_net_items(items);
             }
         } else if let (Some(c), Ok(p)) = (self.companies.iter().find(|c| c.name == peer.name).cloned(), fm.parse(&f.data)) {
-            self.process_company_file(&c, &f, fm.kind, &p);
+            // 企業が閉局回答を受け取れずに同じファイルを再送しても、二重に処理しない
+            if !self.files_seen.insert(self.file_fp(&c.name, &f)) {
+                self.log(&format!("{}: 同じファイルを再受信したので無視した", c.name));
+                return;
+            }
+            if TRANSFER_KINDS.contains(&fm.kind) {
+                self.process_company_file(&c, fm.kind, &p);
+            } else {
+                self.process_request(&c, fm.kind, &p);
+            }
+            self.save();
         }
     }
 
@@ -1006,12 +1069,18 @@ impl Handler for BankState {
         if peer.name == NET {
             return Err(FILE_NAME_ERR);
         }
-        if kind_from_name(&name_kind(&f.name)).map(|k| k.kind) != Some(FileKind::Nyukin) {
+        let Some(fm) = kind_from_name_mode(&name_kind(&f.name), true) else {
             return Err(FILE_NAME_ERR);
-        }
+        };
         let Some(c) = self.companies.iter().find(|c| c.name == peer.name).cloned() else {
             return Err(OTHER_ERR);
         };
+        if fm.kind != FileKind::Nyukin {
+            return self.start_send_biz(&c, fm, f.kind).map_err(|e| {
+                self.log(&format!("{} を作れない: {e}", fm.title));
+                OTHER_ERR
+            });
+        }
         let built = self.build_notice_file(&c).map_err(|e| {
             self.log(&format!("振込入金通知を作れない: {e}"));
             OTHER_ERR
@@ -1036,6 +1105,10 @@ impl Handler for BankState {
 
     /// 閉局回答を返したあとに呼ばれる (企業が受け取れなかった場合に通知を失わないため)。
     fn commit_send(&mut self, peer: &PeerCfg, f: &OutFile) {
+        match kind_from_name_mode(&name_kind(&f.name), true) {
+            Some(fm) if fm.kind != FileKind::Nyukin => return self.commit_send_biz(&peer.name, fm, &f.data),
+            _ => {}
+        }
         if let Some(ids) = self.inflight.remove(&peer.name) {
             self.last_notice.insert(peer.name.clone(), f.data.clone());
             // 件数ではなく識別子で消す。取得が重なっても、渡していない通知は消えない
