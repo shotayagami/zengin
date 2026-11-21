@@ -164,6 +164,8 @@ pub struct FileCtl {
     pub from: u16,
     pub to: u16,
     pub compress: bool,
+    /// ファイル名補助情報 (任意、17 バイト)。中身は解釈せず、回答では要求の値をそのまま返す
+    pub aux: [u8; 17],
 }
 
 impl FileCtl {
@@ -179,6 +181,7 @@ impl FileCtl {
             from: 0,
             to: 0,
             compress,
+            aux: [0; 17],
         }
     }
 
@@ -195,6 +198,7 @@ impl FileCtl {
         b[28..30].copy_from_slice(&self.from.to_be_bytes());
         b[30..32].copy_from_slice(&self.to.to_be_bytes());
         b[32] = digit_byte(self.compress as u8);
+        b[33..50].copy_from_slice(&self.aux);
         b
     }
 
@@ -221,6 +225,7 @@ impl FileCtl {
             from: u16::from_be_bytes([b[28], b[29]]),
             to: u16::from_be_bytes([b[30], b[31]]),
             compress,
+            aux: b[33..50].try_into().unwrap(),
         })
     }
 }

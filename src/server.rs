@@ -2,7 +2,6 @@
 
 use crate::handler::Handler;
 use crate::session::{Opts, Timed, serve};
-use crate::util::Clock;
 use std::io;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -30,13 +29,7 @@ pub struct Server {
 
 impl Server {
     /// `listen` で待ち受け、接続ごとに `serve` を別スレッドで動かす。
-    pub fn start<H: Handler + Send + 'static>(
-        listen: &str,
-        handler: Arc<Mutex<H>>,
-        clock: Clock,
-        opts: Opts,
-        who: &'static str,
-    ) -> io::Result<Server> {
+    pub fn start<H: Handler + Send + 'static>(listen: &str, handler: Arc<Mutex<H>>, opts: Opts, who: &'static str) -> io::Result<Server> {
         let listener = TcpListener::bind(listen)?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
@@ -53,12 +46,12 @@ impl Server {
                             continue;
                         }
                         let slot = Slot(active.clone());
-                        let (mut h, clock, opts) = (handler.clone(), clock.clone(), opts.clone());
+                        let (mut h, opts) = (handler.clone(), opts.clone());
                         thread::spawn(move || {
                             let _slot = slot;
                             let timed = s.set_nonblocking(false).and_then(|_| Timed::new(s, opts.timeout, opts.max_session));
                             let Ok(timed) = timed else { return };
-                            if let Err(e) = serve(timed, &mut h, &clock, &opts) {
+                            if let Err(e) = serve(timed, &mut h, &opts) {
                                 eprintln!("[{who}] {peer} の接続を終了: {e}");
                             }
                         });

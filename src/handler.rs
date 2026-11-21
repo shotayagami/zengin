@@ -80,7 +80,9 @@ pub struct OutFile {
 /// 二次局が、接続ごとに呼ぶ。`Err(u8)` は相手に返す処理結果コード。
 pub trait Handler {
     /// 開局要求のセンター確認コードから相手を特定する。`remote` は要求元の当方コード、`own` は要求の相手コード。
-    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Option<PeerCfg>;
+    /// 特定できなければ処理結果コードを返す: `own` が自局でない → 11 (相手センター確認コードエラー)、
+    /// `remote` が登録にない → 12 (当方センター確認コードエラー)。コードの名前は、要求の項目名 (相手=受信側、当方=送信側) による。
+    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> std::result::Result<PeerCfg, u8>;
     /// 連絡モードの開始要求を検査する (ファイル名、レコード長)。
     fn start_recv(&mut self, peer: &PeerCfg, f: &FileCtl) -> std::result::Result<(), u8>;
     /// 連絡モードで全テキストを受けたあと、終了回答の前に呼ぶ。業務上の検査をする。
@@ -96,7 +98,7 @@ pub trait Handler {
 
 /// 複数の接続スレッドから共有するための実装。
 impl<H: Handler> Handler for Arc<Mutex<H>> {
-    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Option<PeerCfg> {
+    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> std::result::Result<PeerCfg, u8> {
         lock(&**self).find_peer(remote, own)
     }
     fn start_recv(&mut self, peer: &PeerCfg, f: &FileCtl) -> std::result::Result<(), u8> {

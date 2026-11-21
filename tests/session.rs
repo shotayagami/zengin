@@ -7,7 +7,7 @@ use zengin::charcode::Code;
 use zengin::control::{CenterCode, FileCtl, OK, make_name};
 use zengin::handler::{Handler, InFile, OutFile, PeerCfg};
 use zengin::record::{FileKind, fmt};
-use zengin::session::{Opts, fetch_file, send_file, serve, tune};
+use zengin::session::{Done, Job, Opts, fetch_file, run, send_file, serve, tune};
 use zengin::util::{Clock, ZError};
 
 fn cc(s: &str) -> CenterCode {
@@ -31,9 +31,15 @@ struct Test {
 }
 
 impl Handler for Test {
-    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Option<PeerCfg> {
+    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Result<PeerCfg, u8> {
         let c = server_cfg();
-        (c.remote == *remote && c.own == *own).then_some(c)
+        if c.own != *own {
+            Err(0x11)
+        } else if c.remote != *remote {
+            Err(0x12)
+        } else {
+            Ok(c)
+        }
     }
     fn start_recv(&mut self, _: &PeerCfg, f: &FileCtl) -> Result<(), u8> {
         if f.rec_len == 120 { Ok(()) } else { Err(0x15) }
@@ -66,7 +72,7 @@ fn start(h: Test, opts: Opts) -> Server {
     let t = thread::spawn(move || {
         let (s, _) = l.accept().unwrap();
         tune(&s, &opts).unwrap();
-        serve(s, &mut hh.clone(), &Clock::default(), &opts)
+        serve(s, &mut hh.clone(), &opts)
     });
     Server { addr, h, t }
 }
@@ -226,10 +232,12 @@ fn bad_password_key_and_codes_are_rejected() {
             PeerCfg::new("x", cc("00000000020002"), cc("00000000010001"), "PASS01", "BADKEY").unwrap(),
             0x12,
         ),
+        // 要求の当方センター確認コード (送信側=一次局自身) が登録にない → 12
         (
             PeerCfg::new("x", cc("00000000020009"), cc("00000000010001"), "PASS01", "KEY001").unwrap(),
-            0x11,
+            0x12,
         ),
+        // 要求の相手センター確認コード (受信側=二次局) が違う → 11
         (
             PeerCfg::new("x", cc("00000000020002"), cc("00000000010009"), "PASS01", "KEY001").unwrap(),
             0x11,
@@ -544,4 +552,264 @@ fn fetch_with_resend_request() {
     let got = fetch_file(connect(srv.addr, &o), &client_cfg(), &clock, name, 200, true, &o).unwrap();
     srv.t.join().unwrap().unwrap();
     assert!(got.is_none());
+}
+
+/// 生の電文で二次局と話すための道具 (B1〜B5 の試験用)。
+mod raw {
+    use super::*;
+    use zengin::control::{CommCtl, OPEN_REQ};
+    use zengin::sublayer::Link;
+    use zengin::text::build_control;
+
+    pub fn comm(kind: u8, mode: u8) -> CommCtl {
+        let cfg = client_cfg();
+        CommCtl {
+            kind,
+            result: 0,
+            peer: cfg.remote,
+            own: cfg.own,
+            time: [0x26, 0x11, 0x21, 0x16, 0x00, 0x00],
+            password: cfg.pw_open_req,
+            app: 0,
+            mode,
+        }
+    }
+
+    /// 開局まで済ませた接続を返す。
+    pub fn opened(srv: &Server, mode: u8) -> Link<TcpStream> {
+        let mut link = Link::new(TcpStream::connect(srv.addr).unwrap(), 0);
+        link.send(&build_control(&comm(OPEN_REQ, mode).encode()), true).unwrap();
+        assert_eq!(CommCtl::decode(&link.recv().unwrap()[5..]).unwrap().result, 0);
+        link
+    }
+
+    pub fn send_ctl(link: &mut Link<TcpStream>, body: &[u8; 64]) {
+        link.send(&build_control(body), true).unwrap();
+    }
+
+    pub fn recv_comm(link: &mut Link<TcpStream>) -> CommCtl {
+        CommCtl::decode(&link.recv().unwrap()[5..]).unwrap()
+    }
+
+    pub fn recv_file(link: &mut Link<TcpStream>) -> FileCtl {
+        FileCtl::decode(&link.recv().unwrap()[5..]).unwrap()
+    }
+}
+
+#[test]
+fn mode_change_response_echoes_request() {
+    // モード変更回答は、ほかの回答と同じく、センター確認コードを入れ替え、日時などは要求の値を返す
+    use zengin::control::{MODE_REQ, MODE_RSP};
+    let srv = start(Test::default(), Opts::default());
+    let mut link = raw::opened(&srv, 0);
+    let req = raw::comm(MODE_REQ, 1);
+    raw::send_ctl(&mut link, &req.encode());
+    let rsp = raw::recv_comm(&mut link);
+    assert_eq!((rsp.kind, rsp.result), (MODE_RSP, OK));
+    assert_eq!((rsp.peer, rsp.own), (req.own, req.peer));
+    assert_eq!((rsp.time, rsp.app, rsp.mode), (req.time, req.app, req.mode));
+    drop(link);
+    let _ = srv.t.join();
+}
+
+#[test]
+fn close_request_errors_name_the_wrong_field() {
+    // B2: 閉局要求の誤りは、パスワードに限らず、どの項目が違うかで処理結果を分ける
+    use zengin::control::{CLOSE_REQ, CLOSE_RSP};
+    type Spoil = fn(&mut zengin::control::CommCtl);
+    let cases: [(Spoil, u8); 3] = [
+        (|c| c.peer = cc("00000000010009"), 0x11),
+        (|c| c.own = cc("00000000020009"), 0x12),
+        (|c| c.password = [0xF0; 6], 0x14),
+    ];
+    for (spoil, code) in cases {
+        let srv = start(Test::default(), Opts::default());
+        let mut link = raw::opened(&srv, 0);
+        let mut req = raw::comm(CLOSE_REQ, 0);
+        spoil(&mut req);
+        raw::send_ctl(&mut link, &req.encode());
+        let rsp = raw::recv_comm(&mut link);
+        assert_eq!((rsp.kind, rsp.result), (CLOSE_RSP, code));
+        assert_eq!(rsp.time, req.time);
+        drop(link);
+        let _ = srv.t.join();
+    }
+}
+
+#[test]
+fn file_name_aux_info_is_echoed() {
+    // B4: ファイル名補助情報 (17 バイト) は、開始回答と終了回答で要求の値を返す
+    use zengin::control::{END_REQ, END_RSP, START_REQ, START_RSP};
+    use zengin::text::texts_for;
+    let srv = start(Test::default(), Opts::default());
+    let mut link = raw::opened(&srv, 0);
+    let mut start_req = FileCtl::new(START_REQ, make_name("5020", "0121", 1), client_cfg().key, 120, false);
+    start_req.aux = *b"\x80\x00ABCDEFGHIJKLMNO";
+    raw::send_ctl(&mut link, &start_req.encode());
+    let rsp = raw::recv_file(&mut link);
+    assert_eq!((rsp.kind, rsp.result, rsp.aux), (START_RSP, OK, start_req.aux));
+    let data = sogo_file(1, Code::Jis);
+    let texts = texts_for(&data, 120, None).unwrap();
+    for t in &texts {
+        link.send(t, false).unwrap();
+    }
+    let mut end = start_req.clone();
+    (end.kind, end.texts, end.records) = (END_REQ, texts.len() as u16, (data.len() / 120) as u32);
+    raw::send_ctl(&mut link, &end.encode());
+    let rsp = raw::recv_file(&mut link);
+    assert_eq!((rsp.kind, rsp.result, rsp.aux), (END_RSP, OK, start_req.aux));
+    drop(link);
+    let _ = srv.t.join();
+}
+
+#[test]
+fn zero_byte_file_is_accepted_and_not_committed() {
+    // B5: データ電文なしの終了要求 (Biware の「0 バイトファイル送信許可」) は、正常として受け、何も確定しない
+    use zengin::control::{CLOSE_REQ, CLOSE_RSP, END_REQ, END_RSP, START_REQ};
+    let srv = start(Test::default(), Opts::default());
+    let mut link = raw::opened(&srv, 0);
+    let mut f = FileCtl::new(START_REQ, make_name("5020", "0121", 1), client_cfg().key, 120, false);
+    raw::send_ctl(&mut link, &f.encode());
+    assert_eq!(raw::recv_file(&mut link).result, OK);
+    f.kind = END_REQ;
+    raw::send_ctl(&mut link, &f.encode());
+    let rsp = raw::recv_file(&mut link);
+    assert_eq!((rsp.kind, rsp.result, rsp.texts, rsp.records), (END_RSP, OK, 0, 0));
+    raw::send_ctl(&mut link, &raw::comm(CLOSE_REQ, 0).encode());
+    assert_eq!(raw::recv_comm(&mut link).kind, CLOSE_RSP);
+    srv.t.join().unwrap().unwrap();
+    assert!(srv.h.lock().unwrap().received.is_empty(), "0 バイトのファイルは確定しない");
+}
+
+#[test]
+fn multi_file_with_mode_change() {
+    // 1回の接続で、2ファイルを送り (連絡)、モード変更して1ファイルを受け取る (照会)。確定は閉局のとき
+    let clock = Clock::default();
+    let f = fmt(FileKind::Nyukin);
+    let notice = f
+        .build(
+            Code::Jis,
+            f.new_header().set_num("bank_no", 2),
+            &[f.new_data().set_num("amount", 500)],
+        )
+        .unwrap();
+    let srv = start(
+        Test {
+            outbox: Some(OutFile {
+                name: make_name("5020", "0001", 1),
+                rec_len: 200,
+                code: Code::Jis,
+                data: notice.clone(),
+                compress: false,
+            }),
+            ..Test::default()
+        },
+        Opts::default(),
+    );
+    let (a, b) = (sogo_file(2, Code::Jis), sogo_file(3, Code::Ebcdic));
+    let mut second = out(b.clone(), Code::Ebcdic, true);
+    second.name = make_name("5020", "0121", 2);
+    let jobs = [
+        Job::Send(out(a.clone(), Code::Jis, false)),
+        Job::Send(second),
+        Job::Fetch {
+            name: make_name("5020", "0001", 1),
+            rec_len: 200,
+            resend: false,
+        },
+        // 同じ接続で同じ種類をもう一度求めても、2度は渡さない
+        Job::Fetch {
+            name: make_name("5020", "0001", 1),
+            rec_len: 200,
+            resend: false,
+        },
+    ];
+    let o = Opts::default();
+    let done = run(connect(srv.addr, &o), &client_cfg(), &clock, &jobs, &o).unwrap();
+    srv.t.join().unwrap().unwrap();
+    assert!(matches!(done[0], Done::Sent) && matches!(done[1], Done::Sent));
+    assert!(matches!(&done[2], Done::Fetched(Some(f)) if f.data == notice));
+    assert!(matches!(done[3], Done::Fetched(None)));
+    let h = srv.h.lock().unwrap();
+    assert_eq!(h.received.iter().map(|f| f.data.clone()).collect::<Vec<_>>(), [a, b]);
+    assert_eq!(h.sent_committed, 1);
+}
+
+#[test]
+fn mode_change_back_and_forth() {
+    // 照会 → 連絡 → 照会 (仕様書59〜62頁の両方向)
+    let clock = Clock::default();
+    let srv = start(Test::default(), Opts::default());
+    let fetch = Job::Fetch {
+        name: make_name("5020", "0001", 1),
+        rec_len: 200,
+        resend: false,
+    };
+    let jobs = [fetch.clone(), Job::Send(out(sogo_file(1, Code::Jis), Code::Jis, false)), fetch];
+    let o = Opts::default();
+    let done = run(connect(srv.addr, &o), &client_cfg(), &clock, &jobs, &o).unwrap();
+    srv.t.join().unwrap().unwrap();
+    assert!(matches!(done[0], Done::Fetched(None)) && matches!(done[2], Done::Fetched(None)));
+    assert_eq!(srv.h.lock().unwrap().received.len(), 1);
+}
+
+#[test]
+fn files_are_not_committed_if_the_session_fails_midway() {
+    // 2ファイル目で失敗したら、1ファイル目も確定しない (閉局まで正常に終わった伝送だけを確定する)
+    let clock = Clock::default();
+    let srv = start(Test::default(), Opts::default());
+    let mut bad = out(sogo_file(1, Code::Jis), Code::Jis, false);
+    bad.rec_len = 200;
+    bad.data = vec![0x40; 200];
+    let jobs = [Job::Send(out(sogo_file(1, Code::Jis), Code::Jis, false)), Job::Send(bad)];
+    let o = Opts::default();
+    expect_rejected(run(connect(srv.addr, &o), &client_cfg(), &clock, &jobs, &o).map(|_| ()), 0x15);
+    assert!(srv.t.join().unwrap().is_err());
+    assert!(srv.h.lock().unwrap().received.is_empty());
+}
+
+#[test]
+fn primary_resumes_when_start_is_answered_with_resend_request() {
+    // A3: 連絡モードで、開始要求に再送要求 (テキスト 2 から) が返ってきたら、その範囲から送る (仕様書 §VII (2)③⑤)
+    use zengin::control::{CLOSE_REQ, CLOSE_RSP, CommCtl, END_REQ, END_RSP, OPEN_RSP, RETRY_REQ, START_REQ};
+    use zengin::sublayer::Link;
+    use zengin::text::{build_control, parse_ttc};
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let cfg = server_cfg();
+    let fake = thread::spawn(move || {
+        let mut link = Link::new(l.accept().unwrap().0, 0);
+        let ctl = |link: &mut Link<TcpStream>| link.recv().unwrap()[5..].to_vec();
+        let mut c = CommCtl::decode(&ctl(&mut link)).unwrap();
+        (c.kind, c.peer, c.own, c.password) = (OPEN_RSP, cfg.remote, cfg.own, cfg.pw_open_rsp);
+        link.send(&build_control(&c.encode()), true).unwrap();
+        let mut f = FileCtl::decode(&ctl(&mut link)).unwrap();
+        assert_eq!(f.kind, START_REQ);
+        (f.kind, f.from, f.to) = (RETRY_REQ, 2, 0xFFFF);
+        link.send(&build_control(&f.encode()), true).unwrap();
+        let mut seqs = Vec::new();
+        loop {
+            let t = link.recv().unwrap();
+            let ttc = parse_ttc(&t).unwrap();
+            if ttc.data {
+                seqs.push(ttc.seq);
+                continue;
+            }
+            let mut e = FileCtl::decode(&t[5..]).unwrap();
+            assert_eq!(e.kind, END_REQ);
+            e.kind = END_RSP;
+            link.send(&build_control(&e.encode()), true).unwrap();
+            break;
+        }
+        let mut c = CommCtl::decode(&ctl(&mut link)).unwrap();
+        assert_eq!(c.kind, CLOSE_REQ);
+        (c.kind, c.peer, c.own, c.password) = (CLOSE_RSP, cfg.remote, cfg.own, cfg.pw_close_rsp);
+        link.send(&build_control(&c.encode()), true).unwrap();
+        seqs
+    });
+    // 1 テキスト = 16 レコード (1920 バイト) なので、40 レコードは 3 テキスト
+    let o = Opts::default();
+    let file = out(sogo_file(38, Code::Jis), Code::Jis, false);
+    send_file(connect(addr, &o), &client_cfg(), &Clock::default(), &file, &o).unwrap();
+    assert_eq!(fake.join().unwrap(), [2, 3]);
 }

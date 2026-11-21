@@ -94,9 +94,15 @@ fn server_cfg() -> PeerCfg {
 }
 
 impl Handler for Sink {
-    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Option<PeerCfg> {
+    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Result<PeerCfg, u8> {
         let c = server_cfg();
-        (c.remote == *remote && c.own == *own).then_some(c)
+        if c.own != *own {
+            Err(0x11)
+        } else if c.remote != *remote {
+            Err(0x12)
+        } else {
+            Ok(c)
+        }
     }
     fn start_recv(&mut self, _: &PeerCfg, _: &FileCtl) -> Result<(), u8> {
         Ok(())
@@ -128,7 +134,7 @@ fn serve_once(opts: Opts) -> (std::net::SocketAddr, thread::JoinHandle<Result<()
     let t = thread::spawn(move || {
         let (s, _) = l.accept().unwrap();
         let s = Timed::new(s, opts.timeout, opts.max_session).unwrap();
-        serve(s, &mut hh.clone(), &Clock::default(), &opts)
+        serve(s, &mut hh.clone(), &opts)
     });
     (addr, t, h)
 }

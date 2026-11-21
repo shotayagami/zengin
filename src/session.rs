@@ -127,7 +127,8 @@ fn rejected<T>(code: u8, what: &str) -> Result<T> {
 
 /// 一次局が送る通信制御電文 (開局要求/閉局要求)。
 fn comm_req(cfg: &PeerCfg, clock: &Clock, kind: u8, mode: u8) -> CommCtl {
-    let password = if kind == OPEN_REQ { cfg.pw_open_req } else { cfg.pw_close_req };
+    // モード変更には専用のパスワードがないので、開局と同じものを使う
+    let password = if kind == CLOSE_REQ { cfg.pw_close_req } else { cfg.pw_open_req };
     CommCtl {
         kind,
         result: OK,
@@ -149,7 +150,7 @@ fn check_comm_rsp(cfg: &PeerCfg, req: &CommCtl, rsp: &CommCtl, kind: u8) -> Resu
     if rsp.result != OK {
         return rejected(rsp.result, "通信制御電文の処理結果が NG");
     }
-    let pw = if kind == OPEN_RSP { cfg.pw_open_rsp } else { cfg.pw_close_rsp };
+    let pw = if kind == CLOSE_RSP { cfg.pw_close_rsp } else { cfg.pw_open_rsp };
     if rsp.peer != cfg.own || rsp.own != cfg.remote || rsp.password != pw {
         return proto("通信制御回答のセンター確認コードまたはパスワードが不一致");
     }
@@ -177,14 +178,28 @@ fn close<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, clock: &Clock, mode
     }
 }
 
+/// テキスト番号の範囲 (再送要求の From/To) を、テキストの添字の範囲にする。
+fn retry_range(r: &FileCtl, n: usize) -> Result<std::ops::Range<usize>> {
+    let (from, to) = (r.from.max(1) as usize, (r.to as usize).min(n));
+    if from > to {
+        return proto("再送要求の範囲が不正");
+    }
+    Ok(from - 1..to)
+}
+
 /// データ電文と終了要求を送り、終了回答を待つ。再送要求が来たら、範囲のテキストを再送して終了要求を出し直す。
-fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile, opts: &Opts) -> Result<()> {
+/// `first` は最初に送る範囲 (開始要求に再送要求が返ってきたとき)。None なら全部。
+fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile, first: Option<&FileCtl>, opts: &Opts) -> Result<()> {
     if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.data.len() / file.rec_len > 0xFF_FFFF {
         return proto("レコード長またはレコード数が範囲外");
     }
     let comp = file.compress.then_some(file.code == Code::Ebcdic);
     let texts = texts_for(&file.data, file.rec_len, comp)?;
-    for (i, t) in texts.iter().enumerate() {
+    let range = match first {
+        Some(r) => retry_range(r, texts.len())?,
+        None => 0..texts.len(),
+    };
+    for (i, t) in texts.iter().enumerate().take(range.end).skip(range.start) {
         if opts.drop_text == Some(i as u16 + 1) {
             continue;
         }
@@ -208,11 +223,10 @@ fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile
             }
             Msg::File(r) if r.kind == RETRY_REQ => {
                 retries += 1;
-                let (from, to) = (r.from.max(1) as usize, (r.to as usize).min(texts.len()));
-                if retries > MAX_RETRIES || from > to {
-                    return proto("再送要求が不正、または回数超過");
+                if retries > MAX_RETRIES {
+                    return proto("再送の回数超過");
                 }
-                for t in &texts[from - 1..to] {
+                for t in &texts[retry_range(&r, texts.len())?] {
                     link.send(t, false)?;
                 }
             }
@@ -236,6 +250,7 @@ fn recv_data<S: Read + Write>(
     // 終了回答のテキスト数・レコード数は、申告された値ではなく、受信して数えた値を返す
     let rsp = |kind: u8, result: u8, texts: u16, records: u32| {
         let mut r = FileCtl::new(kind, expect.name, expect.key, expect.rec_len, expect.compress);
+        r.aux = expect.aux;
         r.result = result;
         r.texts = texts;
         r.records = records;
@@ -284,7 +299,8 @@ fn recv_data<S: Read + Write>(
                     rec_len,
                     data,
                 };
-                if let Err(code) = validate(&file) {
+                // 0 バイトのファイル (データ電文なしの終了要求) は、検査せずに受け付ける。中身がないので確定もしない
+                if let Err(code) = if file.data.is_empty() { Ok(()) } else { validate(&file) } {
                     send_fctl(link, &rsp(END_RSP, code, got_t, got_r))?;
                     return rejected(code, "受信ファイルの検査エラー");
                 }
@@ -298,29 +314,118 @@ fn recv_data<S: Read + Write>(
     }
 }
 
-/// 連絡モード: ファイルを送る (一次局)。閉局回答まで正常に終わったら Ok。
-pub fn send_file<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, file: &OutFile, opts: &Opts) -> Result<()> {
+/// 一次局が1回の接続で行う伝送の1件。
+#[derive(Clone, Debug)]
+pub enum Job {
+    /// 連絡モードでファイルを送る。
+    Send(OutFile),
+    /// 照会モードでファイルを取り寄せる。`resend` なら開始要求の代わりに再送要求 (全ファイル) で始める。
+    Fetch { name: [u8; 12], rec_len: usize, resend: bool },
+}
+
+impl Job {
+    fn mode(&self) -> u8 {
+        match self {
+            Job::Send(_) => 0,
+            Job::Fetch { .. } => 1,
+        }
+    }
+}
+
+/// `Job` の結果。
+#[derive(Debug)]
+pub enum Done {
+    Sent,
+    /// 相手に送るファイルがなかったら None。
+    Fetched(Option<InFile>),
+}
+
+/// 一次局: 1回の接続で、ジョブを順に行う (マルチファイル伝送)。連絡と照会が混ざるときは、間でモード変更をする。
+/// 閉局回答まで正常に終わったら、ジョブごとの結果を返す。途中で失敗したら Err で、どの結果も確定していない。
+pub fn run<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, jobs: &[Job], opts: &Opts) -> Result<Vec<Done>> {
+    let Some(first) = jobs.first() else {
+        return proto("ジョブがない");
+    };
+    let mut link = Link::new(s, opts.mn);
+    let mut mode = first.mode();
+    open(&mut link, cfg, clock, mode)?;
+    let mut done = Vec::new();
+    for job in jobs {
+        if job.mode() != mode {
+            mode = job.mode();
+            let req = comm_req(cfg, clock, MODE_REQ, mode);
+            send_comm(&mut link, &req)?;
+            match recv_msg(&mut link, false)? {
+                Msg::Comm(rsp) => check_comm_rsp(cfg, &req, &rsp, MODE_RSP)?,
+                _ => return proto("モード変更回答を待っているのに別の電文が来た"),
+            }
+        }
+        done.push(match job {
+            Job::Send(file) => {
+                send_one(&mut link, cfg, file, opts)?;
+                Done::Sent
+            }
+            Job::Fetch { name, rec_len, resend } => Done::Fetched(fetch_one(&mut link, cfg, *name, *rec_len, *resend, opts)?),
+        });
+    }
+    close(&mut link, cfg, clock, mode)?;
+    Ok(done)
+}
+
+/// 連絡モードで1ファイル送る。開始要求に再送要求が返ってきたら (相手が前回の受信の続きを求めている)、その範囲から送る。
+fn send_one<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, file: &OutFile, opts: &Opts) -> Result<()> {
     if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.data.len() / file.rec_len > 0xFF_FFFF {
         return proto("レコード長またはレコード数が範囲外");
     }
-    let mut link = Link::new(s, opts.mn);
-    open(&mut link, cfg, clock, 0)?;
-    let mut start = FileCtl::new(START_REQ, file.name, cfg.key, file.rec_len as u16, file.compress);
-    send_fctl(&mut link, &start)?;
-    match recv_msg(&mut link, false)? {
-        Msg::File(r) if r.kind == START_RSP => {
-            if r.result != OK {
-                return rejected(r.result, "開始回答が NG");
-            }
-        }
-        _ => return proto("開始回答を待っているのに別の電文が来た"),
+    let start = FileCtl::new(START_REQ, file.name, cfg.key, file.rec_len as u16, file.compress);
+    send_fctl(link, &start)?;
+    match recv_msg(link, false)? {
+        Msg::File(r) if r.kind == START_RSP && r.result != OK => rejected(r.result, "開始回答が NG"),
+        Msg::File(r) if r.kind == START_RSP => send_data(link, &start, file, None, opts),
+        // 仕様書 §VII (2)③⑤: 開始要求に再送要求が返ったら、再送指定された範囲を送り、終了要求を出す
+        Msg::File(r) if r.kind == RETRY_REQ => send_data(link, &start, file, Some(&r), opts),
+        _ => proto("開始回答を待っているのに別の電文が来た"),
     }
-    start.kind = START_REQ;
-    send_data(&mut link, &start, file, opts)?;
-    close(&mut link, cfg, clock, 0)
 }
 
-/// 照会モード: ファイルを取り寄せる (一次局)。相手に送るファイルがなければ `Ok(None)`。
+/// 照会モードで1ファイル受け取る。相手に送るファイルがなければ None。
+fn fetch_one<S: Read + Write>(
+    link: &mut Link<S>,
+    cfg: &PeerCfg,
+    name: [u8; 12],
+    rec_len: usize,
+    resend: bool,
+    opts: &Opts,
+) -> Result<Option<InFile>> {
+    let mut req = FileCtl::new(START_REQ, name, cfg.key, rec_len as u16, false);
+    let got = if resend {
+        // 再送要求 (全ファイル) には開始回答が返らず、データ電文から来る。送るファイルがないときだけ開始回答が来る
+        (req.kind, req.from, req.to) = (RETRY_REQ, 1, 0xFFFF);
+        send_fctl(link, &req)?;
+        recv_data(link, &req, &mut |_| Ok(()), opts.max_file)
+    } else {
+        send_fctl(link, &req)?;
+        match recv_msg(link, false)? {
+            Msg::File(r) if r.kind == START_RSP && r.result != OK => rejected(r.result, "開始回答が NG"),
+            Msg::File(r) if r.kind == START_RSP && r.rec_len as usize != rec_len => {
+                proto(format!("開始回答のレコード長が期待と違う: {}", r.rec_len))
+            }
+            Msg::File(r) if r.kind == START_RSP => recv_data(link, &r, &mut |_| Ok(()), opts.max_file),
+            _ => proto("開始回答を待っているのに別の電文が来た"),
+        }
+    };
+    match got {
+        Err(ZError::Rejected(NO_FILE, _)) => Ok(None),
+        r => Ok(Some(r?).filter(|f| !f.data.is_empty())),
+    }
+}
+
+/// 連絡モード: ファイルを1つ送る (一次局)。閉局回答まで正常に終わったら Ok。
+pub fn send_file<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, file: &OutFile, opts: &Opts) -> Result<()> {
+    run(s, cfg, clock, &[Job::Send(file.clone())], opts).map(|_| ())
+}
+
+/// 照会モード: ファイルを1つ取り寄せる (一次局)。相手に送るファイルがなければ `Ok(None)`。
 pub fn fetch_file<S: Read + Write>(
     s: S,
     cfg: &PeerCfg,
@@ -330,35 +435,28 @@ pub fn fetch_file<S: Read + Write>(
     resend: bool,
     opts: &Opts,
 ) -> Result<Option<InFile>> {
-    let mut link = Link::new(s, opts.mn);
-    open(&mut link, cfg, clock, 1)?;
-    let mut req = FileCtl::new(START_REQ, name, cfg.key, rec_len as u16, false);
-    let got = if resend {
-        // 再送要求 (全ファイル) には開始回答が返らず、データ電文から来る。送るファイルがないときだけ開始回答が来る
-        (req.kind, req.from, req.to) = (RETRY_REQ, 1, 0xFFFF);
-        send_fctl(&mut link, &req)?;
-        recv_data(&mut link, &req, &mut |_| Ok(()), opts.max_file)
+    let job = Job::Fetch { name, rec_len, resend };
+    match run(s, cfg, clock, &[job], opts)?.pop() {
+        Some(Done::Fetched(f)) => Ok(f),
+        _ => proto("照会の結果がない"),
+    }
+}
+
+/// 閉局要求・モード変更要求のセンター確認コードとパスワードを検査し、処理結果を返す。
+fn check_comm_req(c: &CommCtl, peer: &PeerCfg, password: [u8; 6]) -> u8 {
+    if c.peer != peer.own {
+        PEER_CODE_ERR
+    } else if c.own != peer.remote {
+        OWN_CODE_ERR
+    } else if c.password != password {
+        PASSWORD_ERR
     } else {
-        send_fctl(&mut link, &req)?;
-        match recv_msg(&mut link, false)? {
-            Msg::File(r) if r.kind == START_RSP && r.result != OK => rejected(r.result, "開始回答が NG"),
-            Msg::File(r) if r.kind == START_RSP && r.rec_len as usize != rec_len => {
-                proto(format!("開始回答のレコード長が期待と違う: {}", r.rec_len))
-            }
-            Msg::File(r) if r.kind == START_RSP => recv_data(&mut link, &r, &mut |_| Ok(()), opts.max_file),
-            _ => proto("開始回答を待っているのに別の電文が来た"),
-        }
-    };
-    let file = match got {
-        Err(ZError::Rejected(NO_FILE, _)) => None,
-        r => Some(r?),
-    };
-    close(&mut link, cfg, clock, 1)?;
-    Ok(file)
+        OK
+    }
 }
 
 /// 二次局として1接続を処理する。
-pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &Opts) -> Result<()> {
+pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<()> {
     let mut link = Link::new(s, opts.mn);
     // S1: 開局要求
     let Msg::Comm(req) = recv_msg(&mut link, false)? else {
@@ -368,14 +466,15 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
         return proto("最初の電文が開局要求でない");
     }
     // 要求の「相手」は自局、「当方」は要求元 (判断 D4)
-    let peer = h.find_peer(&req.own, &req.peer);
-    let result = match &peer {
-        None => PEER_CODE_ERR,
-        Some(p) if req.password != p.pw_open_req => PASSWORD_ERR,
-        Some(_) if req.app != 0 => APP_ERR,
-        Some(_) if req.mode > 1 => MODE_ERR,
-        Some(_) => OK,
+    let found = h.find_peer(&req.own, &req.peer);
+    let result = match &found {
+        Err(code) => *code,
+        Ok(p) if req.password != p.pw_open_req => PASSWORD_ERR,
+        Ok(_) if req.app != 0 => APP_ERR,
+        Ok(_) if req.mode > 1 => MODE_ERR,
+        Ok(_) => OK,
     };
+    let peer = found.ok();
     let rsp = CommCtl {
         kind: OPEN_RSP,
         result,
@@ -390,16 +489,15 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
     let Some(peer) = peer.filter(|_| result == OK) else {
         return rejected(result, "開局要求を拒否した");
     };
-    let mode = req.mode;
+    let mut mode = req.mode;
 
-    let mut started = false;
-    let mut received: Option<InFile> = None;
-    let mut sent: Option<OutFile> = None;
+    // 1回の接続で、ファイルをいくつでも続けて送受信できる (マルチファイル伝送)。確定は閉局のときにまとめて行う
+    let mut received: Vec<InFile> = Vec::new();
+    let mut sent: Vec<OutFile> = Vec::new();
     loop {
         match recv_msg(&mut link, false)? {
             // 照会モードでは、開始要求の代わりに再送要求でも始められる (前回の照会が途中で終わったときの取り直し)
-            Msg::File(f) if (f.kind == START_REQ || (f.kind == RETRY_REQ && mode == 1)) && !started => {
-                started = true;
+            Msg::File(f) if f.kind == START_REQ || (f.kind == RETRY_REQ && mode == 1) => {
                 let check = if f.key != peer.key {
                     Err(FILE_KEY_ERR)
                 } else if mode == 0 {
@@ -408,6 +506,7 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                     Ok(())
                 };
                 let mut rsp = FileCtl::new(START_RSP, f.name, f.key, f.rec_len, f.compress);
+                rsp.aux = f.aux;
                 if let Err(code) = check {
                     rsp.result = code;
                     send_fctl(&mut link, &rsp)?;
@@ -415,7 +514,12 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                 }
                 if mode == 0 {
                     send_fctl(&mut link, &rsp)?;
-                    received = Some(recv_data(&mut link, &f, &mut |inf| h.validate_recv(&peer, inf), opts.max_file)?);
+                    let file = recv_data(&mut link, &f, &mut |inf| h.validate_recv(&peer, inf), opts.max_file)?;
+                    received.extend(Some(file).filter(|f| !f.data.is_empty()));
+                } else if sent.iter().any(|o| name_kind(&o.name) == name_kind(&f.name)) {
+                    // 同じ接続で同じ種類のファイルを2度求められても、確定前の同じ内容を2度渡さない
+                    rsp.result = NO_FILE;
+                    send_fctl(&mut link, &rsp)?;
                 } else {
                     match h.start_send(&peer, &f) {
                         Err(code) => {
@@ -442,17 +546,18 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                             if f.kind == START_REQ {
                                 send_fctl(&mut link, &base)?;
                             }
-                            send_data(&mut link, &base, &of, opts)?;
-                            sent = Some(of);
+                            send_data(&mut link, &base, &of, None, opts)?;
+                            sent.push(of);
                         }
                     }
                 }
             }
             Msg::Comm(c) if c.kind == CLOSE_REQ => {
-                let ok = c.own == peer.remote && c.peer == peer.own && c.password == peer.pw_close_req;
+                let result = check_comm_req(&c, &peer, peer.pw_close_req);
+                let ok = result == OK;
                 let rsp = CommCtl {
                     kind: CLOSE_RSP,
-                    result: if ok { OK } else { PASSWORD_ERR },
+                    result,
                     peer: c.own,
                     own: c.peer,
                     time: c.time,
@@ -464,26 +569,41 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                 // ファイルを捨て、受信側にも残らず、データが消えるため。回答が届かず送信側が再送した場合の
                 // 二重処理は、ハンドラが重複を無視して防ぐ (Handler の説明を参照)。
                 if ok {
-                    if let Some(f) = received.take() {
+                    for f in received.drain(..) {
                         h.commit_recv(&peer, f);
                     }
                 }
                 send_comm(&mut link, &rsp)?;
                 if !ok {
-                    return rejected(PASSWORD_ERR, "閉局要求を拒否した");
+                    return rejected(result, "閉局要求を拒否した");
                 }
                 // 送ったファイル (照会) は、相手が閉局回答を受け取ってから確定する。受け取れなければ、次の取得で同じものを返す
-                if let Some(f) = sent.take() {
-                    h.commit_send(&peer, &f);
+                for f in &sent {
+                    h.commit_send(&peer, f);
                 }
                 return Ok(());
             }
             Msg::Comm(c) if c.kind == MODE_REQ => {
-                let mut rsp = comm_req(&peer, clock, MODE_RSP, c.mode);
-                rsp.result = MODE_CHANGE_NG;
-                (rsp.peer, rsp.own) = (c.own, c.peer);
+                // ファイルとファイルの間で、連絡と照会を切り替える (仕様書59〜62頁)
+                let result = match check_comm_req(&c, &peer, peer.pw_open_req) {
+                    OK if c.app != 0 => APP_ERR,
+                    OK if c.mode > 1 => MODE_ERR,
+                    r => r,
+                };
+                // ほかの回答と同じく、センター確認コードを入れ替え、残りは要求の値を返す
+                let rsp = CommCtl {
+                    kind: MODE_RSP,
+                    result,
+                    peer: c.own,
+                    own: c.peer,
+                    password: peer.pw_open_rsp,
+                    ..c
+                };
                 send_comm(&mut link, &rsp)?;
-                return rejected(MODE_CHANGE_NG, "モード変更は未対応");
+                if result != OK {
+                    return rejected(result, "モード変更要求を拒否した");
+                }
+                mode = c.mode;
             }
             _ => return proto("想定外の電文"),
         }

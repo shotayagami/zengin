@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 use zengin::bank::{self, BankState};
 use zengin::charcode::Code;
 use zengin::config::Conf;
 use zengin::control::{CenterCode, make_name};
-use zengin::handler::{OutFile, PeerCfg};
+use zengin::handler::{InFile, OutFile, PeerCfg};
 use zengin::net::{self, NetState, connect};
 use zengin::record::{FileKind, fmt};
-use zengin::session::{Opts, fetch_file, send_file};
+use zengin::session::{self, Done, Job, Opts, fetch_file};
 use zengin::store::Store;
 use zengin::util::{Clock, Result, ZError, proto};
 
@@ -18,7 +18,8 @@ const USAGE: &str = "\
   企業:
     zengin gen sogo|kyuyo --out FILE --client-code N --client-name NAME --bank N [--code jis|ebcdic]
                           --item 銀行:支店:種目:口座:受取人名:金額 [--item ...]
-    zengin send  --conf FILE --file FILE [--kind sogo|kyuyo] [--to ADDR] [--cycle N] [--compress] [--mn N]
+    zengin send  --conf FILE --file FILE [--file ...] [--kind sogo|kyuyo] [--to ADDR] [--cycle N] [--compress]
+                 [--fetch OUT] [--mn N]   (--file を重ねると1回の接続で続けて送る。--fetch で同じ接続で振込入金通知も取る)
     zengin fetch --conf FILE --out FILE [--to ADDR] [--cycle N] [--resend] [--mn N]
   銀行ノード:
     zengin bank serve     --conf FILE --data DIR [--listen ADDR] [--interval 秒] [--mn N]
@@ -56,6 +57,9 @@ impl Args {
             }
         }
         Ok(Args { flags, pos })
+    }
+    fn all(&self, k: &str) -> Vec<&str> {
+        self.flags.get(k).map_or(Vec::new(), |v| v.iter().map(String::as_str).collect())
     }
     fn get(&self, k: &str) -> Option<&str> {
         self.flags.get(k).and_then(|v| v.last()).map(String::as_str)
@@ -159,23 +163,47 @@ fn cmd_send(a: &Args) -> Result<()> {
     let cfg = company_cfg(&conf)?;
     let kind = kind_of(a)?;
     let fm = fmt(kind);
-    let data = io(std::fs::read(a.path("file")?))?;
-    let parsed = fm.parse(&data)?; // 送る前に自分で検査する
     let opts = a.opts()?;
     let addr = a
         .get("to")
         .or(conf.global.get("addr"))
         .map_or_else(|| proto("--to か設定の addr が必要"), Ok)?;
-    let cycle = cycle(a)?;
-    let file = OutFile {
-        name: make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle),
-        rec_len: fm.rec_len,
-        code: parsed.code,
-        data,
-        compress: a.has("compress"),
-    };
-    send_file(io(connect(addr, &opts))?, &cfg, &Clock::default(), &file, &opts)?;
-    println!("送信した: {} 件", parsed.data.len());
+    let paths = a.all("file");
+    if paths.is_empty() {
+        return proto("--file が必要");
+    }
+    let first_cycle = cycle(a)?;
+    let mut jobs = Vec::new();
+    let mut counts = Vec::new();
+    for (i, path) in paths.iter().enumerate() {
+        let data = io(std::fs::read(path))?;
+        let parsed = fm.parse(&data)?; // 送る前に自分で検査する
+        counts.push(parsed.data.len());
+        // 1回の接続で同じファイル名を重ねないよう、2つ目からはサイクルを1つずつ進める
+        let cycle = ((first_cycle as usize - 1 + i) % 99 + 1) as u8;
+        jobs.push(Job::Send(OutFile {
+            name: make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle),
+            rec_len: fm.rec_len,
+            code: parsed.code,
+            data,
+            compress: a.has("compress"),
+        }));
+    }
+    let nyukin = fmt(FileKind::Nyukin);
+    if a.has("fetch") {
+        jobs.push(Job::Fetch {
+            name: make_name(&nyukin.name_kind[..4], &nyukin.name_kind[4..], 1),
+            rec_len: nyukin.rec_len,
+            resend: false,
+        });
+    }
+    let done = session::run(io(connect(addr, &opts))?, &cfg, &Clock::default(), &jobs, &opts)?;
+    for (path, n) in paths.iter().zip(&counts) {
+        println!("送信した: {path} {n} 件");
+    }
+    if let Some(Done::Fetched(f)) = done.last().filter(|_| a.has("fetch")) {
+        show_notices(f.as_ref(), Path::new(a.req("fetch")?))?;
+    }
     Ok(())
 }
 
@@ -189,7 +217,7 @@ fn cmd_fetch(a: &Args) -> Result<()> {
         .or(conf.global.get("addr"))
         .map_or_else(|| proto("--to か設定の addr が必要"), Ok)?;
     let name = make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle(a)?);
-    let Some(file) = fetch_file(
+    let file = fetch_file(
         io(connect(addr, &opts))?,
         &cfg,
         &Clock::default(),
@@ -197,13 +225,18 @@ fn cmd_fetch(a: &Args) -> Result<()> {
         fm.rec_len,
         a.has("resend"),
         &opts,
-    )?
-    else {
+    )?;
+    show_notices(file.as_ref(), &a.path("out")?)
+}
+
+/// 受け取った振込入金通知を保存して、内容を表示する。
+fn show_notices(file: Option<&InFile>, out: &Path) -> Result<()> {
+    let Some(file) = file else {
         println!("振込入金通知はない");
         return Ok(());
     };
-    let p = fm.parse(&file.data)?;
-    io(std::fs::write(a.path("out")?, &file.data))?;
+    let p = fmt(FileKind::Nyukin).parse(&file.data)?;
+    io(std::fs::write(out, &file.data))?;
     println!(
         "口座 {}-{}-{} {}",
         p.header.get("branch_no"),

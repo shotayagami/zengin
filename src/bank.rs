@@ -912,14 +912,15 @@ impl BankState {
 }
 
 impl Handler for BankState {
-    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Option<PeerCfg> {
+    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> std::result::Result<PeerCfg, u8> {
         if *own != self.own {
-            return None;
+            return Err(crate::control::PEER_CODE_ERR);
         }
         if self.net.remote == *remote {
-            return Some(self.net.clone());
+            return Ok(self.net.clone());
         }
-        self.companies.iter().find(|c| c.peer.remote == *remote).map(|c| c.peer.clone())
+        let found = self.companies.iter().find(|c| c.peer.remote == *remote);
+        found.map(|c| c.peer.clone()).ok_or(crate::control::OWN_CODE_ERR)
     }
 
     fn start_recv(&mut self, peer: &PeerCfg, f: &FileCtl) -> std::result::Result<(), u8> {
@@ -1091,9 +1092,8 @@ pub fn flush_to_net(state: &Mutex<BankState>, opts: &Opts) -> usize {
 
 /// 銀行ノードを起動する。`interval` ごとに組戻依頼を取り込み、送信待ちを全銀ネットへ送る。
 pub fn start(state: BankState, listen: &str, opts: Opts, interval: Duration) -> io::Result<(Server, Arc<Mutex<BankState>>)> {
-    let clock = state.clock.clone();
     let st = Arc::new(Mutex::new(state));
-    let mut srv = Server::start(listen, st.clone(), clock, opts.clone(), WHO)?;
+    let mut srv = Server::start(listen, st.clone(), opts.clone(), WHO)?;
     let st2 = st.clone();
     srv.every(interval, move || {
         lock(&st2).take_requests();

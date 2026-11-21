@@ -580,11 +580,12 @@ impl NetState {
 
 /// 銀行から全銀ネットへ接続してきたときの受け口 (二次局)。
 impl Handler for NetState {
-    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> Option<PeerCfg> {
+    fn find_peer(&mut self, remote: &CenterCode, own: &CenterCode) -> std::result::Result<PeerCfg, u8> {
         if *own != self.own {
-            return None;
+            return Err(crate::control::PEER_CODE_ERR);
         }
-        self.banks.values().find(|b| b.peer.remote == *remote).map(|b| b.peer.clone())
+        let found = self.banks.values().find(|b| b.peer.remote == *remote);
+        found.map(|b| b.peer.clone()).ok_or(crate::control::OWN_CODE_ERR)
     }
 
     fn start_recv(&mut self, _: &PeerCfg, f: &FileCtl) -> std::result::Result<(), u8> {
@@ -693,9 +694,8 @@ pub fn connect(addr: &str, opts: &Opts) -> io::Result<TcpStream> {
 
 /// 全銀ネットを起動する。`interval` ごとに配信待ちを送る。
 pub fn start(state: NetState, listen: &str, opts: Opts, interval: Duration) -> io::Result<(Server, Arc<Mutex<NetState>>)> {
-    let clock = state.clock.clone();
     let st = Arc::new(Mutex::new(state));
-    let mut srv = Server::start(listen, st.clone(), clock, opts.clone(), WHO)?;
+    let mut srv = Server::start(listen, st.clone(), opts.clone(), WHO)?;
     let st2 = st.clone();
     srv.every(interval, move || {
         lock(&st2).take_requests();
