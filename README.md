@@ -25,6 +25,7 @@ Quick start: see [Run it on one machine](#1台で全部動かす) below.
 
 > **注意**
 > - 銀行業務のシステムではない。全国銀行協会(全銀協)・全銀ネットとは無関係で、実在の銀行や全銀システムには接続しない。実際の資金や口座には使わないこと。
+> - 銀行ノードは、通信サーバと口座・業務処理を1つにまとめた模擬で、口座は設定ファイル、状態はテキストファイルで持つ。実際の構成との違いは [`docs/architecture.md`](docs/architecture.md)。
 > - 全銀システムと銀行の間の電文仕様は公開されていないため、為替通知(銀行 ⇔ 全銀ネット)は**独自設計**で、実システムとは互換性がない。
 > - アプリ側に暗号化・強い認証はない。Tailscale (WireGuard) などの閉じた網の中で使うか、TLS 終端を前に置く ([`docs/tls.md`](docs/tls.md))。
 > - 仕様書の著作権は全銀協にあり、このリポジトリには含めない。`scripts/fetch-refs.sh` で、私的な学習のために取得できる。
@@ -129,6 +130,7 @@ $Z show --kind meisai $D/meisai.dat        # ファイルの中身を表示す�
 | [`docs/protocol-notes.md`](docs/protocol-notes.md) | 仕様書の読みのメモ |
 | [`docs/tcpip-wide-ip.md`](docs/tcpip-wide-ip.md) | TCP/IP手順・広域IP網の背景と資料の所在 |
 | [`docs/tls.md`](docs/tls.md) | TLS で包んで使う方法 (stunnel、`scripts/tls-relay.py`) |
+| [`docs/architecture.md`](docs/architecture.md) | 実際の銀行の一般的な構成 (対外接続、ファイル伝送サーバ、業務システム、勘定系) と、このプロジェクトでの簡略化 |
 | [`docs/zengin-system.md`](docs/zengin-system.md) | 全銀システムの仕組みの調査 |
 
 ### 開発
