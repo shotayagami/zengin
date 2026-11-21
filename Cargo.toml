@@ -1,0 +1,13 @@
+[package]
+name = "zengin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "全銀協標準通信プロトコル (TCP/IP手順・広域IP網) と、模擬の全銀ネット・銀行ノードの学習用実装"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["zengin", "banking", "protocol", "education"]
+categories = ["network-programming"]
+publish = false
+
+[dependencies]
