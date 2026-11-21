@@ -140,8 +140,9 @@ fn comm_req(cfg: &PeerCfg, clock: &Clock, kind: u8, mode: u8) -> CommCtl {
     }
 }
 
-/// 一次局が受け取った通信制御回答を検査する。センター確認コードは要求と入れ替わっている (判断 D4)。
-fn check_comm_rsp(cfg: &PeerCfg, rsp: &CommCtl, kind: u8) -> Result<()> {
+/// 一次局が受け取った通信制御回答を検査する。センター確認コードは要求と入れ替わり (判断 D4)、
+/// 通信年月日時分秒・アプリケーションID・モードは要求と同じ (日立の製品は、不一致をエラーにする)。
+fn check_comm_rsp(cfg: &PeerCfg, req: &CommCtl, rsp: &CommCtl, kind: u8) -> Result<()> {
     if rsp.kind != kind {
         return proto(format!("通信制御回答の電文区分が不正: 0x{:02X}", rsp.kind));
     }
@@ -152,21 +153,26 @@ fn check_comm_rsp(cfg: &PeerCfg, rsp: &CommCtl, kind: u8) -> Result<()> {
     if rsp.peer != cfg.own || rsp.own != cfg.remote || rsp.password != pw {
         return proto("通信制御回答のセンター確認コードまたはパスワードが不一致");
     }
+    if (rsp.time, rsp.app, rsp.mode) != (req.time, req.app, req.mode) {
+        return proto("通信制御回答の通信年月日時分秒・アプリケーションID・モードが要求と不一致");
+    }
     Ok(())
 }
 
 fn open<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, clock: &Clock, mode: u8) -> Result<()> {
-    send_comm(link, &comm_req(cfg, clock, OPEN_REQ, mode))?;
+    let req = comm_req(cfg, clock, OPEN_REQ, mode);
+    send_comm(link, &req)?;
     match recv_msg(link, false)? {
-        Msg::Comm(rsp) => check_comm_rsp(cfg, &rsp, OPEN_RSP),
+        Msg::Comm(rsp) => check_comm_rsp(cfg, &req, &rsp, OPEN_RSP),
         _ => proto("開局回答を待っているのに別の電文が来た"),
     }
 }
 
 fn close<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, clock: &Clock, mode: u8) -> Result<()> {
-    send_comm(link, &comm_req(cfg, clock, CLOSE_REQ, mode))?;
+    let req = comm_req(cfg, clock, CLOSE_REQ, mode);
+    send_comm(link, &req)?;
     match recv_msg(link, false)? {
-        Msg::Comm(rsp) => check_comm_rsp(cfg, &rsp, CLOSE_RSP),
+        Msg::Comm(rsp) => check_comm_rsp(cfg, &req, &rsp, CLOSE_RSP),
         _ => proto("閉局回答を待っているのに別の電文が来た"),
     }
 }
@@ -365,7 +371,7 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
         result,
         peer: req.own,
         own: req.peer,
-        time: now_bcd(clock),
+        time: req.time, // 回答は要求の日時を返す (日立のトレースで確認)
         password: peer.as_ref().map_or([0; 6], |p| p.pw_open_rsp),
         app: req.app,
         mode: req.mode,
@@ -426,7 +432,7 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, clock: &Clock, opts: &O
                     result: if ok { OK } else { PASSWORD_ERR },
                     peer: c.own,
                     own: c.peer,
-                    time: now_bcd(clock),
+                    time: c.time,
                     password: peer.pw_close_rsp,
                     app: c.app,
                     mode: c.mode,

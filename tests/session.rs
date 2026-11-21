@@ -343,3 +343,31 @@ fn file_is_committed_even_if_client_vanishes_after_close_request() {
     assert_eq!(srv.h.lock().unwrap().received.len(), 1, "閉局回答を返す前に確定している");
     assert_eq!(srv.h.lock().unwrap().received[0].data, data);
 }
+
+#[test]
+fn open_response_echoes_request_time_and_swaps_codes() {
+    use zengin::control::{CommCtl, OPEN_REQ, OPEN_RSP};
+    use zengin::sublayer::Link;
+    use zengin::text::build_control;
+    // 日立の一次局は、回答の通信年月日時分秒が要求と違うとエラーにする。自分の時計ではなく要求の値を返すこと
+    let srv = start(Test::default(), Opts::default());
+    let cfg = client_cfg();
+    let req = CommCtl {
+        kind: OPEN_REQ,
+        result: 0,
+        peer: cfg.remote,
+        own: cfg.own,
+        time: [0x08, 0x03, 0x10, 0x14, 0x30, 0x10],
+        password: cfg.pw_open_req,
+        app: 0,
+        mode: 0,
+    };
+    let mut link = Link::new(TcpStream::connect(srv.addr).unwrap(), 0);
+    link.send(&build_control(&req.encode()), true).unwrap();
+    let rsp = CommCtl::decode(&link.recv().unwrap()[5..]).unwrap();
+    assert_eq!((rsp.kind, rsp.result), (OPEN_RSP, 0));
+    assert_eq!((rsp.peer, rsp.own), (req.own, req.peer));
+    assert_eq!((rsp.time, rsp.app, rsp.mode), (req.time, req.app, req.mode));
+    drop(link);
+    let _ = srv.t.join();
+}
