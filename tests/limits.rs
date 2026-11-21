@@ -25,6 +25,8 @@ fn cc(s: &str) -> CenterCode {
 #[derive(Default)]
 struct Sink {
     received: Vec<InFile>,
+    /// 照会で渡すファイル
+    outbox: Option<OutFile>,
 }
 
 fn server_cfg() -> PeerCfg {
@@ -49,7 +51,7 @@ impl Handler for Sink {
         self.received.push(f);
     }
     fn start_send(&mut self, _: &PeerCfg, _: &FileCtl) -> Result<Option<OutFile>, u8> {
-        Ok(None)
+        Ok(self.outbox.clone())
     }
     fn commit_send(&mut self, _: &PeerCfg, _: &OutFile) {}
 }
@@ -224,14 +226,40 @@ fn text_count_limit_is_65535() {
     .unwrap();
     wait("受け取る", || sink.lock().unwrap().received.len() == 1);
     assert_eq!(sink.lock().unwrap().received[0].data, data);
-    // 1 件でも超えたら、送る前に止める (接続しても、ファイルの送信は始めない)
+    srv.stop();
+    // 1 件でも超えたら、開局要求も送らずに止める
+    let quiet = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let over = raw_file(vec![b'A'; 65_536 * 3], 1);
-    match send_file(connect(srv.addr, &opts), &client_cfg(), &Clock::default(), &over, &opts) {
+    match send_file(
+        connect(quiet.local_addr().unwrap(), &opts),
+        &client_cfg(),
+        &Clock::default(),
+        &over,
+        &opts,
+    ) {
         Err(ZError::Protocol(m)) => assert!(m.contains("65535"), "{m}"),
         other => panic!("止まるはず: {other:?}"),
     }
-    thread::sleep(Duration::from_millis(200));
-    assert_eq!(sink.lock().unwrap().received.len(), 1);
+    let (mut peer, _) = quiet.accept().unwrap();
+    let mut got = Vec::new();
+    peer.read_to_end(&mut got).unwrap();
+    assert!(got.is_empty(), "何も送らない: {} バイト届いた", got.len());
+}
+
+#[test]
+fn oversized_inquiry_file_is_refused_before_the_start_response() {
+    // 照会で二次局が渡すファイルが上限を超えるなら、開始回答 (その他エラー 99) で断り、データ電文は送らない
+    let sink = Arc::new(Mutex::new(Sink {
+        outbox: Some(raw_file(vec![b'A'; 65_536 * 3], 1)),
+        ..Sink::default()
+    }));
+    let srv = Server::start("127.0.0.1:0", sink, tiny_texts(0), "試験").unwrap();
+    let o = Opts::default();
+    let name = make_name("5020", "0121", 1);
+    match fetch_file(connect(srv.addr, &o), &client_cfg(), &Clock::default(), name, 1, false, &o) {
+        Err(ZError::Rejected(c, _)) => assert_eq!(c, 0x99),
+        other => panic!("断られるはず: {other:?}"),
+    }
     srv.stop();
 }
 

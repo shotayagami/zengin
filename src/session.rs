@@ -214,22 +214,38 @@ fn retry_range(r: &FileCtl, n: usize) -> Result<std::ops::Range<usize>> {
     Ok(from - 1..to)
 }
 
-/// データ電文と終了要求を送り、終了回答を待つ。再送要求が来たら、範囲のテキストを再送して終了要求を出し直す。
-/// `first` は最初に送る範囲 (開始要求に再送要求が返ってきたとき)。None なら全部。
-fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile, first: Option<&FileCtl>, opts: &Opts) -> Result<()> {
+/// 送るファイルを、データ電文のテキストに分けたもの。
+struct Prepared {
+    texts: Vec<Vec<u8>>,
+    records: usize,
+}
+
+/// 送るファイルをテキストに分け、件数の上限 (テキスト 65,535 件、レコード 16,777,215 件) を確かめる。
+/// 開始要求 (照会では開始回答) を送る前に呼ぶ。上限を超えるファイルで、相手に伝送を始めさせないため。
+fn prepare(file: &OutFile, opts: &Opts) -> Result<Prepared> {
+    if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.rec_id > 2 {
+        return proto("レコード長またはレコードID が範囲外");
+    }
     let comp = file.compress.then_some(file.code == Code::Ebcdic);
     let max_text = opts.text_len.clamp(TTC_LEN + 3, MAX_TEXT_EXT);
     let (texts, records) = if file.rec_id == 0 {
         (
             texts_for_len(&file.data, file.rec_len, comp, max_text)?,
-            file.data.len() / file.rec_len.max(1),
+            file.data.len() / file.rec_len,
         )
     } else {
         (texts_for_var(&file.data, comp, max_text)?, var_records(&file.data)?)
     };
     if records > 0xFF_FFFF {
-        return proto("レコード数が範囲外");
+        return proto("レコード数が 16,777,215 を超える");
     }
+    Ok(Prepared { texts, records })
+}
+
+/// データ電文と終了要求を送り、終了回答を待つ。再送要求が来たら、範囲のテキストを再送して終了要求を出し直す。
+/// `first` は最初に送る範囲 (開始要求に再送要求が返ってきたとき)。None なら全部。
+fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &Prepared, first: Option<&FileCtl>, opts: &Opts) -> Result<()> {
+    let (texts, records) = (&file.texts, file.records);
     let range = match first {
         Some(r) => retry_range(r, texts.len())?,
         None => 0..texts.len(),
@@ -248,7 +264,7 @@ fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile
         e.texts = texts.len() as u16;
         e.records = records as u32;
         send_fctl(link, &e)?;
-        match recv_msg(link, file.compress)? {
+        match recv_msg(link, base.compress)? {
             Msg::File(r) if r.kind == END_RSP => {
                 return if r.result == OK {
                     Ok(())
@@ -396,12 +412,20 @@ pub fn run<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, jobs: &[Job], op
     let Some(first) = jobs.first() else {
         return proto("ジョブがない");
     };
+    // 送るファイルは、開局の前にすべてテキストに分けておく。上限を超えるものがあれば、何も送らずに止める
+    let prepared = jobs
+        .iter()
+        .map(|j| match j {
+            Job::Send(f) => prepare(f, opts).map(Some),
+            Job::Fetch { .. } => Ok(None),
+        })
+        .collect::<Result<Vec<_>>>()?;
     let mut link = Link::new(s, opts.mn);
     link.set_conn_kind(if opts.basic { 0 } else { 1 });
     let mut mode = first.mode();
     open(&mut link, cfg, clock, mode)?;
     let mut done = Vec::new();
-    for job in jobs {
+    for (job, prepared) in jobs.iter().zip(&prepared) {
         if job.mode() != mode {
             mode = job.mode();
             let req = comm_req(cfg, clock, MODE_REQ, mode);
@@ -411,12 +435,13 @@ pub fn run<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, jobs: &[Job], op
                 _ => return proto("モード変更回答を待っているのに別の電文が来た"),
             }
         }
-        done.push(match job {
-            Job::Send(file) => {
-                send_one(&mut link, cfg, file, opts)?;
+        done.push(match (job, prepared) {
+            (Job::Send(file), Some(p)) => {
+                send_one(&mut link, cfg, file, p, opts)?;
                 Done::Sent
             }
-            Job::Fetch { name, rec_len, resend } => Done::Fetched(fetch_one(&mut link, cfg, *name, *rec_len, *resend, opts)?),
+            (Job::Send(_), None) => unreachable!("送るファイルは分けてある"),
+            (Job::Fetch { name, rec_len, resend }, _) => Done::Fetched(fetch_one(&mut link, cfg, *name, *rec_len, *resend, opts)?),
         });
     }
     close(&mut link, cfg, clock, mode)?;
@@ -424,18 +449,15 @@ pub fn run<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, jobs: &[Job], op
 }
 
 /// 連絡モードで1ファイル送る。開始要求に再送要求が返ってきたら (相手が前回の受信の続きを求めている)、その範囲から送る。
-fn send_one<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, file: &OutFile, opts: &Opts) -> Result<()> {
-    if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.rec_id > 2 {
-        return proto("レコード長またはレコードID が範囲外");
-    }
+fn send_one<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, file: &OutFile, p: &Prepared, opts: &Opts) -> Result<()> {
     let mut start = FileCtl::new(START_REQ, file.name, cfg.key, file.rec_len as u16, file.compress);
     start.rec_id = file.rec_id;
     send_fctl(link, &start)?;
     match recv_msg(link, false)? {
         Msg::File(r) if r.kind == START_RSP && r.result != OK => rejected(r.result, "開始回答が NG"),
-        Msg::File(r) if r.kind == START_RSP => send_data(link, &start, file, None, opts),
+        Msg::File(r) if r.kind == START_RSP => send_data(link, &start, p, None, opts),
         // 仕様書 §VII (2)③⑤: 開始要求に再送要求が返ったら、再送指定された範囲を送り、終了要求を出す
-        Msg::File(r) if r.kind == RETRY_REQ => send_data(link, &start, file, Some(&r), opts),
+        Msg::File(r) if r.kind == RETRY_REQ => send_data(link, &start, p, Some(&r), opts),
         _ => proto("開始回答を待っているのに別の電文が来た"),
     }
 }
@@ -646,12 +668,21 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<
                             // Biware は、回答のファイル名が要求と違うと「全銀ファイル名の不一致」で打ち切る
                             of.name = f.name;
                             of.compress = f.compress;
+                            // 開始回答の前にテキストに分ける。上限を超えるなら、伝送を始めずに断る
+                            let p = match prepare(&of, opts) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    rsp.result = OTHER_ERR;
+                                    send_fctl(&mut link, &rsp)?;
+                                    return Err(e);
+                                }
+                            };
                             let base = rsp.clone();
                             // 再送要求で始まったときは、開始回答を返さずにデータ電文から送る (仕様書 §VII の (2)②D)
                             if f.kind == START_REQ {
                                 send_fctl(&mut link, &base)?;
                             }
-                            send_data(&mut link, &base, &of, None, opts)?;
+                            send_data(&mut link, &base, &p, None, opts)?;
                             sent.push(of);
                         }
                     }
