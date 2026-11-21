@@ -49,9 +49,18 @@ impl Store {
 
     /// 書き込んでよいか (試験用の回数制限を1つ使う)。
     fn may_write(&self) -> bool {
-        self.budget
-            .as_ref()
-            .is_none_or(|b| b.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok())
+        let Some(b) = &self.budget else { return true };
+        // fetch_update は新しい Rust で非推奨 (try_update に改名)、try_update は MSRV 1.85 にないので、自分で回す
+        let mut n = b.load(Ordering::SeqCst);
+        loop {
+            if n == 0 {
+                return false;
+            }
+            match b.compare_exchange(n, n - 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return true,
+                Err(now) => n = now,
+            }
+        }
     }
 
     pub fn is_persistent(&self) -> bool {
