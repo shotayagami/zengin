@@ -2,7 +2,10 @@
 
 use crate::util::{Result, proto};
 
+/// 全銀協の仕様書のテキスト長の上限。送るテキストは、既定でこれ以下にする
 pub const MAX_TEXT: usize = 2048;
+/// 受け取るテキスト長の上限。市販品 (Biware) は 32,767 バイトまでのテキストを送れる (仕様書の外の拡張)
+pub const MAX_TEXT_EXT: usize = 32767;
 pub const TTC_LEN: usize = 5;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,7 +37,7 @@ pub fn parse_ttc(t: &[u8]) -> Result<Ttc> {
     }
     let seq = u16::from_be_bytes([t[1], t[2]]);
     let len = u16::from_be_bytes([t[3], t[4]]);
-    if len as usize != t.len() || t.len() > MAX_TEXT {
+    if len as usize != t.len() || t.len() > MAX_TEXT_EXT {
         return proto(format!("TTC テキスト長が不正: {} (実際 {})", len, t.len()));
     }
     let ttc = Ttc {
@@ -176,28 +179,71 @@ pub fn decompress_body(data: &[u8], pre_len: usize) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// レコード列を、レコード境界でテキストに分ける。シーケンス番号は 1 から。
+/// レコード列を、レコード境界でテキストに分ける。シーケンス番号は 1 から。テキスト長は 2048 まで。
 pub fn texts_for(data: &[u8], rec_len: usize, compress: Compress) -> Result<Vec<Vec<u8>>> {
+    texts_for_len(data, rec_len, compress, MAX_TEXT)
+}
+
+/// `texts_for` の、テキスト長の上限を指定できる版。
+pub fn texts_for_len(data: &[u8], rec_len: usize, compress: Compress, max_text: usize) -> Result<Vec<Vec<u8>>> {
     if rec_len == 0 || data.len() % rec_len != 0 {
         return proto("レコード長でデータが割り切れない");
     }
-    let recs = data.len() / rec_len;
-    let mut texts = Vec::new();
+    let bounds: Vec<usize> = (0..=data.len() / rec_len).map(|i| i * rec_len).collect();
+    pack(data, &bounds, compress, max_text)
+}
+
+/// 可変長レコード (各レコードの前に 2 バイトの長さ LL) の数を数え、形が正しいかを検査する。
+pub fn var_records(body: &[u8]) -> Result<usize> {
+    Ok(var_bounds(body)?.len() - 1)
+}
+
+/// 可変長レコードの境界 (先頭 0、各レコードの終わり)。
+fn var_bounds(body: &[u8]) -> Result<Vec<usize>> {
+    let mut bounds = vec![0];
     let mut i = 0;
-    while i < recs {
-        let mut n = ((MAX_TEXT - TTC_LEN - 2) / rec_len).min(recs - i);
+    while i < body.len() {
+        if i + 2 > body.len() {
+            return proto("可変長レコードの長さ (LL) が途中で切れている");
+        }
+        let n = u16::from_be_bytes([body[i], body[i + 1]]) as usize;
+        if n == 0 || i + 2 + n > body.len() {
+            return proto("可変長レコードの長さ (LL) が不正");
+        }
+        i += 2 + n;
+        bounds.push(i);
+    }
+    Ok(bounds)
+}
+
+/// 可変長レコード (LL 付きの連結) を、レコード境界でテキストに分ける。
+pub fn texts_for_var(data: &[u8], compress: Compress, max_text: usize) -> Result<Vec<Vec<u8>>> {
+    pack(data, &var_bounds(data)?, compress, max_text)
+}
+
+/// `bounds` (レコードの境界) で区切りながら、`max_text` に収まるだけレコードを詰めてテキストにする。
+fn pack(data: &[u8], bounds: &[usize], compress: Compress, max_text: usize) -> Result<Vec<Vec<u8>>> {
+    let mut texts = Vec::new();
+    let mut i = 0; // bounds の添字
+    while i + 1 < bounds.len() {
+        // 圧縮前で収まる最大の件数から始め、圧縮して伸びた場合は減らす
+        let room = max_text - TTC_LEN - if compress.is_some() { 2 } else { 0 };
+        let mut j = i + 1;
+        while j + 1 < bounds.len() && bounds[j + 1] - bounds[i] <= room {
+            j += 1;
+        }
         loop {
-            if n == 0 {
+            if j == i {
                 return proto("1レコードがテキストに収まらない");
             }
-            let t = build_data((texts.len() + 1) as u16, &data[i * rec_len..(i + n) * rec_len], compress);
-            if t.len() <= MAX_TEXT {
+            let t = build_data((texts.len() + 1) as u16, &data[bounds[i]..bounds[j]], compress);
+            if t.len() <= max_text {
                 texts.push(t);
                 break;
             }
-            n -= 1;
+            j -= 1;
         }
-        i += n;
+        i = j;
     }
     if texts.len() > u16::MAX as usize {
         return proto("テキスト数が 65535 を超える");

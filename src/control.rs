@@ -23,6 +23,7 @@ pub const OK: u8 = 0x00;
 pub const COMM_KIND_ERR: u8 = 0x10;
 pub const PEER_CODE_ERR: u8 = 0x11;
 pub const OWN_CODE_ERR: u8 = 0x12;
+pub const SERVICE_TIME_ERR: u8 = 0x13;
 pub const PASSWORD_ERR: u8 = 0x14;
 pub const APP_ERR: u8 = 0x15;
 pub const MODE_ERR: u8 = 0x16;
@@ -32,6 +33,7 @@ pub const FILE_KEY_ERR: u8 = 0x12;
 pub const TEXT_COUNT_ERR: u8 = 0x13;
 pub const RECORD_COUNT_ERR: u8 = 0x14;
 pub const RECORD_LEN_ERR: u8 = 0x15;
+pub const DUPLICATE_FILE: u8 = 0x16;
 pub const NO_FILE: u8 = 0x17;
 pub const RECORD_ID_ERR: u8 = 0x18;
 pub const COMPRESS_ERR: u8 = 0x19;
@@ -164,6 +166,8 @@ pub struct FileCtl {
     pub from: u16,
     pub to: u16,
     pub compress: bool,
+    /// レコードID: 0 固定長。1 可変長、2 可変長 (H 情報付) は市販品 (Biware) の拡張で、全銀協の仕様書にはない
+    pub rec_id: u8,
     /// ファイル名補助情報 (任意、17 バイト)。中身は解釈せず、回答では要求の値をそのまま返す
     pub aux: [u8; 17],
 }
@@ -181,6 +185,7 @@ impl FileCtl {
             from: 0,
             to: 0,
             compress,
+            rec_id: 0,
             aux: [0; 17],
         }
     }
@@ -193,7 +198,7 @@ impl FileCtl {
         b[14..20].copy_from_slice(&self.key);
         b[20..22].copy_from_slice(&self.texts.to_be_bytes());
         b[22..25].copy_from_slice(&self.records.to_be_bytes()[1..]);
-        b[25] = digit_byte(0); // レコードID: 固定長
+        b[25] = digit_byte(self.rec_id);
         b[26..28].copy_from_slice(&self.rec_len.to_be_bytes());
         b[28..30].copy_from_slice(&self.from.to_be_bytes());
         b[30..32].copy_from_slice(&self.to.to_be_bytes());
@@ -205,9 +210,6 @@ impl FileCtl {
     pub fn decode(b: &[u8]) -> Result<Self> {
         if b.len() != 64 {
             return proto("ファイル制御電文は64バイト");
-        }
-        if byte_digit(b[25])? != 0 {
-            return proto("レコードID が固定長でない");
         }
         let compress = match byte_digit(b[32])? {
             0 => false,
@@ -225,6 +227,7 @@ impl FileCtl {
             from: u16::from_be_bytes([b[28], b[29]]),
             to: u16::from_be_bytes([b[30], b[31]]),
             compress,
+            rec_id: byte_digit(b[25])?,
             aux: b[33..50].try_into().unwrap(),
         })
     }
@@ -325,7 +328,10 @@ mod tests {
     fn rejects_bad_lengths_and_ids() {
         assert!(CommCtl::decode(&[0u8; 63]).is_err());
         let mut b = FileCtl::new(START_REQ, make_name("5020", "0001", 1), six("K").unwrap(), 200, false).encode();
+        // レコードID は数字なら読む (1・2 は可変長。受け付けるかは二次局が判断する)、数字でなければエラー
         b[25] = 0xF1;
+        assert_eq!(FileCtl::decode(&b).unwrap().rec_id, 1);
+        b[25] = 0x41;
         assert!(FileCtl::decode(&b).is_err());
     }
 }

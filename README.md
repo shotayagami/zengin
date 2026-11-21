@@ -12,7 +12,7 @@ used for file exchange between companies and banks in Japan, plus a simulated **
   retransmission, and the company → bank → Zengin-Net → bank → company transfer flow (netting limits, settlement, returns, recalls).
 - **This is not a banking system.** It is not affiliated with the Japanese Bankers Association (JBA) or Zengin-Net, it never talks to real banks,
   and the inter-bank messages are our own design (the real ones are not public). Do not use it for real money or real bank connections.
-- Encryption is not implemented; the intended deployment is inside a private overlay such as Tailscale/WireGuard.
+- Encryption is not built in; deploy inside a private overlay such as Tailscale/WireGuard, or put a TLS terminator in front (`docs/tls.md`).
 - The protocol specification is copyrighted by the JBA and is **not** included. `scripts/fetch-refs.sh` downloads it for personal study.
 - Documentation (mostly Japanese) is in [`docs/`](docs/). Licensed under MIT OR Apache-2.0.
 
@@ -26,7 +26,7 @@ Quick start: see [Run it on one machine](#1台で全部動かす) below.
 > **注意**
 > - 銀行業務のシステムではない。全国銀行協会(全銀協)・全銀ネットとは無関係で、実在の銀行や全銀システムには接続しない。実際の資金や口座には使わないこと。
 > - 全銀システムと銀行の間の電文仕様は公開されていないため、為替通知(銀行 ⇔ 全銀ネット)は**独自設計**で、実システムとは互換性がない。
-> - アプリ側に暗号化・強い認証はない。Tailscale (WireGuard) などの閉じた網の中で使う前提。
+> - アプリ側に暗号化・強い認証はない。Tailscale (WireGuard) などの閉じた網の中で使うか、TLS 終端を前に置く ([`docs/tls.md`](docs/tls.md))。
 > - 仕様書の著作権は全銀協にあり、このリポジトリには含めない。`scripts/fetch-refs.sh` で、私的な学習のために取得できる。
 
 ### できること
@@ -108,6 +108,7 @@ $Z bank recall --data $D/b1 取扱番号                       # 組戻依頼 (�
 | [`docs/spec-net.md`](docs/spec-net.md) | 全銀ネットと銀行ノードの仕様 (為替通知の独自フォーマットを含む) |
 | [`docs/protocol-notes.md`](docs/protocol-notes.md) | 仕様書の読みのメモ |
 | [`docs/tcpip-wide-ip.md`](docs/tcpip-wide-ip.md) | TCP/IP手順・広域IP網の背景と資料の所在 |
+| [`docs/tls.md`](docs/tls.md) | TLS で包んで使う方法 (stunnel、`scripts/tls-relay.py`) |
 | [`docs/zengin-system.md`](docs/zengin-system.md) | 全銀システムの仕組みの調査 |
 
 ### 開発
@@ -125,7 +126,8 @@ CI の設定は `.github/workflows/ci.yml` (Linux・Windows・macOS、Rust 1.85)
   市販の全銀TCPクライアント (インターコム Biware、評価版) と本実装の銀行ノードの間で、総合振込の送信 (連絡モード) と振込入金通知の受信 (照会モード) が、圧縮あり・なしとも正常に終わることも確かめた。
   EBCDIC のデータ、再送要求で始める受信のやり直しも同じ。試していないのは、本実装が一次局になる向きなど (`docs/spec-protocol.md` §7)。`scripts/tap.py` で通信を中継すると、全メッセージの16進ダンプを取れる。
 - 回線が切れたファイルを、接続し直したときに続きから受ける機能は、`--resume` を付けたときだけ有効 (`docs/spec-protocol.md` §7)。
-- 対象外: 暗号化接続、拡張Z手順、取組日の検査、手数料、担保、稼働時間。
+- 市販品の拡張 (可変長レコード、32,767 バイトまでのテキスト) にも対応する (`docs/spec-protocol.md` §3.7)。サービス時間帯 (`--hours`)、二重ファイル伝送の拒否 (銀行の設定 `duplicate = reject`) も選べる。
+- 対象外: 本体での暗号化 (TLS 終端を前に置く。`docs/tls.md`)、取組日の検査、手数料、担保、稼働時間。
 - 状態ファイルは、処理ごとに全体を、一時ファイル経由で書き直す簡易な方式 (1ファイルずつはディスクへ書き出してから置き換えるが、複数のファイルをまとめた原子性はない)。処理の途中でプロセスが落ちると、残高と送信待ちの整合は保証しない。壊れた状態ファイルは、初期状態に戻さず、起動を失敗させる。
 - 受け取ったファイルは、閉局回答を返す前に確定する (返したあとに落ちてもデータが消えないようにするため)。そのため、再送されたときの二重処理は、重複判定で防ぐ。
 - 日時は日本時間 (UTC+9) 固定。和暦は令和のみ。

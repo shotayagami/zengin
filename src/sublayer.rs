@@ -1,6 +1,6 @@
 //! サブレイヤ: SH (8バイト)、論理ACK、連続送信 (MN/AF)。docs/spec-protocol.md §3.1。
 
-use crate::text::MAX_TEXT;
+use crate::text::MAX_TEXT_EXT;
 use crate::util::{Result, proto};
 use std::io::{Read, Write};
 
@@ -53,6 +53,8 @@ pub struct Link<S> {
     mn_known: bool,
     sent_noack: u8,
     recv_noack: u8,
+    /// 送るテキストの TTC の接続形態区分 (情報区分の上位4ビット) を、この値に書き換える。None なら書き換えない
+    conn_kind: Option<u8>,
 }
 
 impl<S: Read + Write> Link<S> {
@@ -65,7 +67,13 @@ impl<S: Read + Write> Link<S> {
             mn_known: false,
             sent_noack: 0,
             recv_noack: 0,
+            conn_kind: None,
         }
+    }
+
+    /// 送るテキストの TTC の接続形態区分を決める (0 か 1)。受けるときは、どちらも受け付ける。
+    pub fn set_conn_kind(&mut self, kind: u8) {
+        self.conn_kind = Some(kind & 1);
     }
 
     pub fn peer_mn(&self) -> u8 {
@@ -80,8 +88,8 @@ impl<S: Read + Write> Link<S> {
 
     /// テキストを1情報メッセージとして送る。`control` なら必ず論理ACKを要求して待つ。
     pub fn send(&mut self, text: &[u8], control: bool) -> Result<()> {
-        if text.len() > MAX_TEXT {
-            return proto("テキストが 2048 バイトを超える");
+        if text.len() > MAX_TEXT_EXT {
+            return proto("テキストが 32767 バイトを超える");
         }
         // 相手の MN 以下の件数まで AF=1 で連続送信し、次は AF=0 (§VIII)。
         let want_ack = control || self.peer_mn == 0 || self.sent_noack >= self.peer_mn;
@@ -95,6 +103,9 @@ impl<S: Read + Write> Link<S> {
         let mut msg = Vec::with_capacity(SH_LEN + text.len());
         msg.extend_from_slice(&sh.encode());
         msg.extend_from_slice(text);
+        if let (Some(kind), Some(info)) = (self.conn_kind, msg.get_mut(SH_LEN)) {
+            *info = (*info & 0x0F) | (kind << 4);
+        }
         self.s.write_all(&msg)?;
         self.s.flush()?;
         if !want_ack {

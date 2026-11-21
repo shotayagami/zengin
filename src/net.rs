@@ -589,6 +589,9 @@ impl Handler for NetState {
     }
 
     fn start_recv(&mut self, _: &PeerCfg, f: &FileCtl) -> std::result::Result<(), u8> {
+        if f.rec_id != 0 {
+            return Err(crate::control::RECORD_ID_ERR); // 業務のファイルは固定長だけ
+        }
         match kind_from_name(&name_kind(&f.name)) {
             Some(fm) if matches!(fm.kind, FileKind::Ex91 | FileKind::Ex92 | FileKind::Ex93 | FileKind::Ex94) => {
                 if f.rec_len as usize == fm.rec_len {
@@ -657,6 +660,7 @@ pub fn deliver_once(state: &Mutex<NetState>, opts: &Opts) -> usize {
             let file = OutFile {
                 name: make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle),
                 rec_len: fm.rec_len,
+                rec_id: 0,
                 code: Code::Jis,
                 data,
                 compress: false,

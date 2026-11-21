@@ -178,6 +178,7 @@ fn oversize_file_is_cut_off() {
         OutFile {
             name: make_name("5020", "0121", 1),
             rec_len: 120,
+            rec_id: 0,
             code: Code::Jis,
             data: bytes,
             compress: false,

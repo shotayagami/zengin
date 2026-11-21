@@ -64,6 +64,9 @@ impl PeerCfg {
 pub struct InFile {
     pub name: [u8; 12],
     pub rec_len: usize,
+    /// レコードID: 0 固定長、1 可変長、2 可変長 (H 情報付)。可変長のとき `data` は、各レコードの前に
+    /// 2 バイトのレコード長 (LL、ビッグエンディアン) を付けて連結したもの (伝送上の形のまま)
+    pub rec_id: u8,
     pub data: Vec<u8>,
 }
 
@@ -72,6 +75,8 @@ pub struct InFile {
 pub struct OutFile {
     pub name: [u8; 12],
     pub rec_len: usize,
+    /// レコードID (`InFile::rec_id` と同じ)。可変長のとき `data` は LL 付きのレコードの連結、`rec_len` は名目の長さ
+    pub rec_id: u8,
     pub code: Code,
     pub data: Vec<u8>,
     pub compress: bool,

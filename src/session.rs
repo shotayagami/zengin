@@ -4,7 +4,7 @@ use crate::charcode::Code;
 use crate::control::*;
 use crate::handler::{Handler, InFile, OutFile, PeerCfg};
 use crate::sublayer::Link;
-use crate::text::{TTC_LEN, build_control, parse_data, parse_ttc, texts_for};
+use crate::text::{MAX_TEXT, MAX_TEXT_EXT, TTC_LEN, build_control, parse_data, parse_ttc, texts_for_len, texts_for_var, var_records};
 use crate::util::{Clock, Result, ZError, lock, proto};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -30,6 +30,13 @@ pub struct Opts {
     /// 二次局: 連絡モードで途中まで受けたファイルを覚えておき、接続し直した相手の開始要求に、続きからの再送要求を返す
     /// (仕様書48〜49頁)。None なら使わない (相手は最初から送り直す)。接続をまたいで共有するので、同じ値を clone して渡す
     pub resume: Option<Partials>,
+    /// 送るデータ電文のテキスト長の上限 (TTC を含む)。全銀協の仕様書では 2048。相手が対応していれば 32767 まで
+    pub text_len: usize,
+    /// 送るテキストの TTC の接続形態区分を 0 (ベーシック手順、汎用機どうし) にする。既定は 1 (PC)
+    pub basic: bool,
+    /// 二次局のサービス時間帯 (開始, 終了)。時と分を HHMM の数で持つ。開局要求の通信時刻がこの外なら 13 を返す。
+    /// 開始 > 終了なら日をまたぐ (例: 2200〜0600)
+    pub hours: Option<(u16, u16)>,
 }
 
 /// 途中まで受けたファイル (二次局、連絡モード)。キーは (相手の名前, ファイル名)。
@@ -53,6 +60,9 @@ impl Default for Opts {
             max_file: 16 << 20,
             max_session: Duration::from_secs(300),
             resume: None,
+            text_len: MAX_TEXT,
+            basic: false,
+            hours: None,
         }
     }
 }
@@ -207,11 +217,19 @@ fn retry_range(r: &FileCtl, n: usize) -> Result<std::ops::Range<usize>> {
 /// データ電文と終了要求を送り、終了回答を待つ。再送要求が来たら、範囲のテキストを再送して終了要求を出し直す。
 /// `first` は最初に送る範囲 (開始要求に再送要求が返ってきたとき)。None なら全部。
 fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile, first: Option<&FileCtl>, opts: &Opts) -> Result<()> {
-    if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.data.len() / file.rec_len > 0xFF_FFFF {
-        return proto("レコード長またはレコード数が範囲外");
-    }
     let comp = file.compress.then_some(file.code == Code::Ebcdic);
-    let texts = texts_for(&file.data, file.rec_len, comp)?;
+    let max_text = opts.text_len.clamp(TTC_LEN + 3, MAX_TEXT_EXT);
+    let (texts, records) = if file.rec_id == 0 {
+        (
+            texts_for_len(&file.data, file.rec_len, comp, max_text)?,
+            file.data.len() / file.rec_len.max(1),
+        )
+    } else {
+        (texts_for_var(&file.data, comp, max_text)?, var_records(&file.data)?)
+    };
+    if records > 0xFF_FFFF {
+        return proto("レコード数が範囲外");
+    }
     let range = match first {
         Some(r) => retry_range(r, texts.len())?,
         None => 0..texts.len(),
@@ -228,7 +246,7 @@ fn send_data<S: Read + Write>(link: &mut Link<S>, base: &FileCtl, file: &OutFile
         e.kind = END_REQ;
         e.result = OK;
         e.texts = texts.len() as u16;
-        e.records = (file.data.len() / file.rec_len) as u32;
+        e.records = records as u32;
         send_fctl(link, &e)?;
         match recv_msg(link, file.compress)? {
             Msg::File(r) if r.kind == END_RSP => {
@@ -263,12 +281,22 @@ fn recv_data<S: Read + Write>(
     max_bytes: usize,
 ) -> Result<InFile> {
     let rec_len = expect.rec_len as usize;
+    let var = expect.rec_id != 0;
     let mut total: usize = texts.values().map(Vec::len).sum();
+    // 受けたレコード数 (固定長はバイト数から、可変長は LL を数えて)
+    let count = |texts: &BTreeMap<u16, Vec<u8>>, total: usize| -> u32 {
+        if var {
+            texts.values().map(|b| var_records(b).unwrap_or(0) as u32).sum()
+        } else {
+            (total / rec_len.max(1)) as u32
+        }
+    };
     let mut retries = 0;
     // 終了回答のテキスト数・レコード数は、申告された値ではなく、受信して数えた値を返す
     let rsp = |kind: u8, result: u8, texts: u16, records: u32| {
         let mut r = FileCtl::new(kind, expect.name, expect.key, expect.rec_len, expect.compress);
         r.aux = expect.aux;
+        r.rec_id = expect.rec_id;
         r.result = result;
         r.texts = texts;
         r.records = records;
@@ -277,7 +305,9 @@ fn recv_data<S: Read + Write>(
     loop {
         match recv_msg(link, expect.compress)? {
             Msg::Data(seq, body) => {
-                if rec_len == 0 || body.len() % rec_len != 0 {
+                if var {
+                    var_records(&body)?;
+                } else if rec_len == 0 || body.len() % rec_len != 0 {
                     return proto("テキストのレコード部がレコード長で割り切れない");
                 }
                 total += body.len();
@@ -289,7 +319,7 @@ fn recv_data<S: Read + Write>(
                 }
             }
             Msg::File(e) if e.kind == END_REQ => {
-                let (got_t, got_r) = (texts.len() as u16, (total / rec_len.max(1)) as u32);
+                let (got_t, got_r) = (texts.len() as u16, count(texts, total));
                 if texts.keys().any(|&s| s > e.texts) {
                     send_fctl(link, &rsp(END_RSP, TEXT_COUNT_ERR, got_t, got_r))?;
                     return rejected(TEXT_COUNT_ERR, "終了要求のテキスト数より大きい番号を受けた");
@@ -307,14 +337,16 @@ fn recv_data<S: Read + Write>(
                     total = 0;
                     continue;
                 }
+                let records = count(texts, total);
                 let data: Vec<u8> = std::mem::take(texts).into_values().flatten().collect();
-                if (data.len() / rec_len) as u32 != e.records {
+                if records != e.records {
                     send_fctl(link, &rsp(END_RSP, RECORD_COUNT_ERR, got_t, got_r))?;
                     return rejected(RECORD_COUNT_ERR, "終了要求のレコード数が不一致");
                 }
                 let file = InFile {
                     name: expect.name,
                     rec_len,
+                    rec_id: expect.rec_id,
                     data,
                 };
                 // 0 バイトのファイル (データ電文なしの終了要求) は、検査せずに受け付ける。中身がないので確定もしない
@@ -365,6 +397,7 @@ pub fn run<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, jobs: &[Job], op
         return proto("ジョブがない");
     };
     let mut link = Link::new(s, opts.mn);
+    link.set_conn_kind(if opts.basic { 0 } else { 1 });
     let mut mode = first.mode();
     open(&mut link, cfg, clock, mode)?;
     let mut done = Vec::new();
@@ -392,10 +425,11 @@ pub fn run<S: Read + Write>(s: S, cfg: &PeerCfg, clock: &Clock, jobs: &[Job], op
 
 /// 連絡モードで1ファイル送る。開始要求に再送要求が返ってきたら (相手が前回の受信の続きを求めている)、その範囲から送る。
 fn send_one<S: Read + Write>(link: &mut Link<S>, cfg: &PeerCfg, file: &OutFile, opts: &Opts) -> Result<()> {
-    if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.data.len() / file.rec_len > 0xFF_FFFF {
-        return proto("レコード長またはレコード数が範囲外");
+    if file.rec_len == 0 || file.rec_len > u16::MAX as usize || file.rec_id > 2 {
+        return proto("レコード長またはレコードID が範囲外");
     }
-    let start = FileCtl::new(START_REQ, file.name, cfg.key, file.rec_len as u16, file.compress);
+    let mut start = FileCtl::new(START_REQ, file.name, cfg.key, file.rec_len as u16, file.compress);
+    start.rec_id = file.rec_id;
     send_fctl(link, &start)?;
     match recv_msg(link, false)? {
         Msg::File(r) if r.kind == START_RSP && r.result != OK => rejected(r.result, "開始回答が NG"),
@@ -460,6 +494,14 @@ pub fn fetch_file<S: Read + Write>(
     }
 }
 
+/// 開局要求の通信年月日時分秒 (BCD) の時刻が、サービス時間帯の中か。時間帯がなければ常に中。
+fn in_hours(hours: Option<(u16, u16)>, time: &[u8; 6]) -> bool {
+    let Some((from, to)) = hours else { return true };
+    let bcd = |b: u8| ((b >> 4) * 10 + (b & 0xF)) as u16;
+    let t = bcd(time[3]) * 100 + bcd(time[4]);
+    if from <= to { from <= t && t < to } else { t >= from || t < to }
+}
+
 /// 閉局要求・モード変更要求のセンター確認コードとパスワードを検査し、処理結果を返す。
 fn check_comm_req(c: &CommCtl, peer: &PeerCfg, password: [u8; 6]) -> u8 {
     if c.peer != peer.own {
@@ -476,6 +518,7 @@ fn check_comm_req(c: &CommCtl, peer: &PeerCfg, password: [u8; 6]) -> u8 {
 /// 二次局として1接続を処理する。
 pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<()> {
     let mut link = Link::new(s, opts.mn);
+    link.set_conn_kind(if opts.basic { 0 } else { 1 });
     // S1: 開局要求
     let Msg::Comm(req) = recv_msg(&mut link, false)? else {
         return proto("開局要求を待っているのに別の電文が来た");
@@ -487,6 +530,7 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<
     let found = h.find_peer(&req.own, &req.peer);
     let result = match &found {
         Err(code) => *code,
+        Ok(_) if !in_hours(opts.hours, &req.time) => SERVICE_TIME_ERR,
         Ok(p) if req.password != p.pw_open_req => PASSWORD_ERR,
         Ok(_) if req.app != 0 => APP_ERR,
         Ok(_) if req.mode > 1 => MODE_ERR,
@@ -518,6 +562,8 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<
             Msg::File(f) if f.kind == START_REQ || (f.kind == RETRY_REQ && mode == 1) => {
                 let check = if f.key != peer.key {
                     Err(FILE_KEY_ERR)
+                } else if f.rec_id > 2 {
+                    Err(RECORD_ID_ERR)
                 } else if mode == 0 {
                     h.start_recv(&peer, &f)
                 } else {
@@ -525,6 +571,7 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<
                 };
                 let mut rsp = FileCtl::new(START_RSP, f.name, f.key, f.rec_len, f.compress);
                 rsp.aux = f.aux;
+                rsp.rec_id = f.rec_id;
                 if let Err(code) = check {
                     rsp.result = code;
                     send_fctl(&mut link, &rsp)?;
@@ -583,6 +630,11 @@ pub fn serve<S: Read + Write>(s: S, h: &mut dyn Handler, opts: &Opts) -> Result<
                         Ok(None) => {
                             rsp.result = NO_FILE;
                             send_fctl(&mut link, &rsp)?;
+                        }
+                        Ok(Some(of)) if of.rec_id != f.rec_id => {
+                            rsp.result = RECORD_ID_ERR;
+                            send_fctl(&mut link, &rsp)?;
+                            return rejected(RECORD_ID_ERR, "照会のレコードID が、送るファイルと違う");
                         }
                         Ok(Some(of)) if of.rec_len != f.rec_len as usize => {
                             rsp.result = RECORD_LEN_ERR;

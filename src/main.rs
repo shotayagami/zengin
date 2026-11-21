@@ -30,6 +30,10 @@ const USAGE: &str = "\
                       (--resume: 途中で切れた受信を、接続し直したときに続きから受ける)
     zengin net report --conf FILE --data DIR
     zengin net settle --data DIR [--offline --conf FILE]
+  共通の通信オプション:
+    --text-len N   送るテキスト長の上限 (既定 2048。相手が対応していれば 32767 まで)
+    --basic        TTC の接続形態区分を 0 (ベーシック手順、汎用機どうし) にする
+    --hours HHMM-HHMM  待ち受け側のサービス時間帯 (外の開局要求には 13 を返す)
 ";
 
 struct Args {
@@ -39,7 +43,7 @@ struct Args {
 
 impl Args {
     fn parse(v: &[String]) -> Result<Args> {
-        const SWITCHES: [&str; 4] = ["compress", "offline", "resend", "resume"];
+        const SWITCHES: [&str; 5] = ["basic", "compress", "offline", "resend", "resume"];
         let (mut flags, mut pos) = (HashMap::<String, Vec<String>>::new(), Vec::new());
         let mut it = v.iter();
         while let Some(a) = it.next() {
@@ -79,6 +83,9 @@ impl Args {
         Ok(Opts {
             mn: self.num("mn", 3u8)?.min(15),
             resume: self.has("resume").then(Default::default),
+            text_len: self.num("text-len", zengin::text::MAX_TEXT)?,
+            basic: self.has("basic"),
+            hours: self.get("hours").map(hours).transpose()?,
             ..Opts::default()
         })
     }
@@ -104,6 +111,18 @@ fn company_cfg(conf: &Conf) -> Result<PeerCfg> {
 }
 
 /// ファイル名のサイクル (1〜99)。
+/// `--hours 0900-1700` を (900, 1700) にする。
+fn hours(s: &str) -> Result<(u16, u16)> {
+    let p = |x: &str| -> Option<u16> {
+        let v: u16 = x.parse().ok()?;
+        (x.len() == 4 && v / 100 <= 24 && v % 100 < 60).then_some(v)
+    };
+    match s.split_once('-').map(|(a, b)| (p(a), p(b))) {
+        Some((Some(a), Some(b))) => Ok((a, b)),
+        _ => proto(format!("--hours は HHMM-HHMM: {s:?}")),
+    }
+}
+
 fn cycle(a: &Args) -> Result<u8> {
     let c = a.num("cycle", 1u8)?;
     if !(1..=99).contains(&c) {
@@ -186,6 +205,7 @@ fn cmd_send(a: &Args) -> Result<()> {
         jobs.push(Job::Send(OutFile {
             name: make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle),
             rec_len: fm.rec_len,
+            rec_id: 0,
             code: parsed.code,
             data,
             compress: a.has("compress"),

@@ -98,6 +98,8 @@ pub struct BankState {
     pub net_addr: String,
     pub companies: Vec<Company>,
     pub accounts: BTreeMap<AcctKey, Account>,
+    /// 受信済みと同じ企業のファイルが届いたら、二重ファイル伝送 (16) で拒否する。偽なら、黙って重複を無視する (既定)
+    pub reject_duplicates: bool,
     outq: Vec<Item>,
     notices: Vec<Notice>,
     pub sent: BTreeMap<u64, Sent>,
@@ -154,6 +156,7 @@ impl BankState {
             net_addr: net_addr.into(),
             companies: Vec::new(),
             accounts: BTreeMap::new(),
+            reject_duplicates: false,
             outq: Vec::new(),
             notices: Vec::new(),
             sent: BTreeMap::new(),
@@ -209,6 +212,11 @@ impl BankState {
             return proto(format!("name は半角カナ・英大文字・数字などで15文字以内: {name:?}"));
         }
         let mut b = BankState::new(clock, store, bank_no, name, own, net, g.req("net_addr")?);
+        b.reject_duplicates = match g.get("duplicate").unwrap_or("ignore") {
+            "ignore" => false,
+            "reject" => true,
+            x => return proto(format!("duplicate は ignore か reject: {x:?}")),
+        };
         let acct_of = |sec: &crate::config::Section, number_key: &str| -> Result<AcctKey> {
             let branch: u16 = small(num(sec.req("branch")?, "branch")?, "branch")?;
             let kind: u8 = small(num(sec.req("kind")?, "kind")?, "kind")?;
@@ -506,16 +514,15 @@ impl BankState {
 
     // ---- 企業からの総合振込・給与振込 ----
 
+    /// 企業のファイルの重複判定に使う指紋 (企業、日付、ファイル名とデータ)。
+    fn file_fp(&self, company: &str, f: &InFile) -> String {
+        format!("{company}\t{}\t{:016x}", self.clock.now().ymd(), fingerprint(&[&f.name, &f.data]))
+    }
+
     fn process_company_file(&mut self, company: &Company, f: &InFile, kind: FileKind, p: &Parsed) {
         let who = company.name.clone();
         // 企業が閉局回答を受け取れずに同じファイルを再送しても、二重に引き落とさない
-        let fp = format!(
-            "{}\t{}\t{:016x}",
-            company.name,
-            self.clock.now().ymd(),
-            fingerprint(&[&f.name, &f.data])
-        );
-        if !self.files_seen.insert(fp) {
+        if !self.files_seen.insert(self.file_fp(&company.name, f)) {
             self.log(&format!("{who}: 同じファイルを再受信したので無視した"));
             return;
         }
@@ -904,6 +911,7 @@ impl BankState {
         Ok(Some(OutFile {
             name: make_name("5020", "0001", cycle),
             rec_len: f.rec_len,
+            rec_id: 0,
             code: Code::Jis,
             data: bytes,
             compress: false,
@@ -924,6 +932,9 @@ impl Handler for BankState {
     }
 
     fn start_recv(&mut self, peer: &PeerCfg, f: &FileCtl) -> std::result::Result<(), u8> {
+        if f.rec_id != 0 {
+            return Err(crate::control::RECORD_ID_ERR); // 業務のファイルは固定長だけ
+        }
         let Some(fm) = kind_from_name(&name_kind(&f.name)) else {
             return Err(FILE_NAME_ERR);
         };
@@ -962,6 +973,10 @@ impl Handler for BankState {
         let Some(c) = self.companies.iter().find(|c| c.name == peer.name) else {
             return Err(OTHER_ERR);
         };
+        if self.reject_duplicates && self.files_seen.contains(&self.file_fp(&c.name, f)) {
+            self.log(&format!("{}: 受信済みのファイルなので、二重ファイル伝送として拒否した", peer.name));
+            return Err(crate::control::DUPLICATE_FILE);
+        }
         if p.header.num("client_code") != c.code {
             self.log(&format!("{}: ヘッダの企業コードが登録と違う", peer.name));
             return Err(OTHER_ERR);
@@ -1012,6 +1027,7 @@ impl Handler for BankState {
         Ok(Some(OutFile {
             name: f.name,
             rec_len: fmt(FileKind::Nyukin).rec_len,
+            rec_id: 0,
             code: Code::Jis,
             data,
             compress: false,
@@ -1061,6 +1077,7 @@ pub fn flush_to_net(state: &Mutex<BankState>, opts: &Opts) -> usize {
             let file = OutFile {
                 name: make_name(&fm.name_kind[..4], &fm.name_kind[4..], cycle),
                 rec_len: fm.rec_len,
+                rec_id: 0,
                 code: Code::Jis,
                 data,
                 compress: false,

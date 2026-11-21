@@ -109,6 +109,7 @@ fn out(data: Vec<u8>, code: Code, compress: bool) -> OutFile {
     OutFile {
         name: make_name("5020", "0121", 1),
         rec_len: 120,
+        rec_id: 0,
         code,
         data,
         compress,
@@ -163,6 +164,7 @@ fn shokai_returns_file_and_commits() {
     let of = OutFile {
         name: make_name("5020", "0001", 1),
         rec_len: 200,
+        rec_id: 0,
         code: Code::Ebcdic,
         data: data.clone(),
         compress: true,
@@ -415,6 +417,7 @@ fn shokai_start_response_echoes_requested_name_and_compression() {
     let of = OutFile {
         name: make_name("5020", "0001", 2),
         rec_len: 200,
+        rec_id: 0,
         code: Code::Jis,
         data,
         compress: false,
@@ -489,6 +492,7 @@ fn shokai_can_start_with_resend_request() {
     let of = OutFile {
         name: req.name,
         rec_len: 200,
+        rec_id: 0,
         code: Code::Jis,
         data: data.clone(),
         compress: false,
@@ -531,6 +535,7 @@ fn fetch_with_resend_request() {
     let of = OutFile {
         name,
         rec_len: 200,
+        rec_id: 0,
         code: Code::Jis,
         data: data.clone(),
         compress: false,
@@ -698,6 +703,7 @@ fn multi_file_with_mode_change() {
             outbox: Some(OutFile {
                 name: make_name("5020", "0001", 1),
                 rec_len: 200,
+                rec_id: 0,
                 code: Code::Jis,
                 data: notice.clone(),
                 compress: false,
@@ -903,4 +909,107 @@ fn resume_falls_back_to_a_fresh_start_if_the_peer_cannot_continue() {
     .unwrap();
     srv3.t.join().unwrap().unwrap();
     assert_eq!(srv3.h.lock().unwrap().received[0].data, file.data);
+}
+
+#[test]
+fn variable_length_records_and_long_texts() {
+    // 市販品 (Biware) の拡張: 可変長レコード (各レコードの前に 2 バイトの長さ) と、2048 を超えるテキスト
+    let mut var = Vec::new();
+    for i in 0..300usize {
+        let rec = vec![b'A' + (i % 26) as u8; 1 + i % 150];
+        var.extend((rec.len() as u16).to_be_bytes());
+        var.extend(rec);
+    }
+    let fixed = sogo_file(200, Code::Jis);
+    for (rec_id, data) in [(1u8, var.clone()), (2, var), (0, fixed)] {
+        for (compress, text_len) in [(false, 2048), (true, 2048), (false, 32767), (true, 32767)] {
+            let srv = start(Test::default(), Opts::default());
+            let mut file = out(data.clone(), Code::Jis, compress);
+            file.rec_id = rec_id;
+            let o = Opts {
+                text_len,
+                ..Opts::default()
+            };
+            send_file(connect(srv.addr, &o), &client_cfg(), &Clock::default(), &file, &o).unwrap();
+            srv.t.join().unwrap().unwrap();
+            let h = srv.h.lock().unwrap();
+            assert_eq!(
+                (h.received[0].rec_id, &h.received[0].data),
+                (rec_id, &data),
+                "{rec_id} {compress} {text_len}"
+            );
+        }
+    }
+}
+
+#[test]
+fn record_id_out_of_range_is_rejected_with_18() {
+    use zengin::control::START_REQ;
+    let srv = start(Test::default(), Opts::default());
+    let mut link = raw::opened(&srv, 0);
+    let mut f = FileCtl::new(START_REQ, make_name("5020", "0121", 1), client_cfg().key, 120, false);
+    f.rec_id = 3;
+    raw::send_ctl(&mut link, &f.encode());
+    assert_eq!(raw::recv_file(&mut link).result, 0x18);
+    drop(link);
+    let _ = srv.t.join();
+}
+
+#[test]
+fn basic_procedure_connection_kind_is_sent_and_accepted() {
+    // TTC の接続形態区分 0 (ベーシック手順、汎用機どうし) で送っても、受ける側はそのまま処理する
+    use zengin::sublayer::Link;
+    use zengin::text::build_control;
+    let (a, b) = {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let c = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        (c, l.accept().unwrap().0)
+    };
+    let mut tx = Link::new(a, 0);
+    tx.set_conn_kind(0);
+    let t = thread::spawn(move || Link::new(b, 0).recv().unwrap());
+    tx.send(&build_control(&[0u8; 64]), false).unwrap();
+    assert_eq!(t.join().unwrap()[0], 0x00, "情報区分の上位4ビットが 0");
+
+    let srv = start(Test::default(), Opts::default());
+    let o = Opts {
+        basic: true,
+        ..Opts::default()
+    };
+    let file = out(sogo_file(2, Code::Jis), Code::Jis, false);
+    send_file(connect(srv.addr, &o), &client_cfg(), &Clock::default(), &file, &o).unwrap();
+    srv.t.join().unwrap().unwrap();
+    assert_eq!(srv.h.lock().unwrap().received[0].data, file.data);
+}
+
+#[test]
+fn open_request_outside_service_hours_gets_13() {
+    use zengin::control::{CommCtl, OPEN_REQ};
+    use zengin::sublayer::Link;
+    use zengin::text::build_control;
+    for (hours, hhmm, want) in [
+        ((900, 1700), 0x16, 0),
+        ((900, 1700), 0x08, 0x13),
+        ((2200, 600), 0x23, 0),
+        ((2200, 600), 0x12, 0x13),
+    ] {
+        let srv = start(
+            Test::default(),
+            Opts {
+                hours: Some(hours),
+                ..Opts::default()
+            },
+        );
+        let mut req = raw::comm(OPEN_REQ, 0);
+        req.time[3] = hhmm; // 時 (BCD)
+        let mut link = Link::new(TcpStream::connect(srv.addr).unwrap(), 0);
+        link.send(&build_control(&req.encode()), true).unwrap();
+        assert_eq!(
+            CommCtl::decode(&link.recv().unwrap()[5..]).unwrap().result,
+            want,
+            "{hours:?} {hhmm:02X}"
+        );
+        drop(link);
+        let _ = srv.t.join();
+    }
 }

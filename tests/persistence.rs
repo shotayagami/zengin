@@ -143,6 +143,7 @@ fn net_file(items: &[Item]) -> InFile {
     InFile {
         name: make_name("9020", "9091", 1),
         rec_len: 200,
+        rec_id: 0,
         data,
     }
 }

@@ -178,6 +178,7 @@ impl World {
         let file = zengin::handler::OutFile {
             name: make_name("5020", "0121", cycle),
             rec_len: 120,
+            rec_id: 0,
             code: Code::Jis,
             data: bytes,
             compress: false,
@@ -387,6 +388,7 @@ fn duplicates_do_not_double_credit() {
     let f = InFile {
         name: make_name("9020", "9091", 9),
         rec_len: 200,
+        rec_id: 0,
         data,
     };
     let peer = PeerCfg::new("net", cc(BANK2_CODE), cc(NET_CODE), "NETPW1", "NETKEY").unwrap();
@@ -471,6 +473,7 @@ fn invalid_returns_and_recall_refusals_are_ignored() {
             InFile {
                 name: make_name("9020", name, 7),
                 rec_len: 200,
+                rec_id: 0,
                 data,
             },
         );
@@ -572,5 +575,21 @@ fn large_batch_is_split_into_several_files() {
     w.send_sogo(&items);
     wait("全件が届く", || idle(&w) && w.balance(w.b2(), B_ACCT) == n as i64);
     assert_eq!(w.net.lock().unwrap().ledger.len(), n);
+    w.stop();
+}
+
+#[test]
+fn duplicate_file_can_be_rejected_with_code_16() {
+    // 設定 duplicate = reject のとき、受信済みと同じファイルは二重ファイル伝送 (16) で拒否する
+    let w = World::new(5_000_000, true);
+    w.bank1.lock().unwrap().reject_duplicates = true;
+    let bytes = World::sogo_bytes(&[(2, 20, "0000001", 900)], "ｳｹﾄﾘ");
+    w.try_send_bytes(bytes.clone(), 1).unwrap();
+    match w.try_send_bytes(bytes, 1) {
+        Err(zengin::util::ZError::Rejected(c, _)) => assert_eq!(c, 0x16),
+        other => panic!("拒否されるはず: {other:?}"),
+    }
+    wait("届く", || idle(&w) && w.balance(w.b2(), B_ACCT) == 900);
+    assert_eq!(w.bank1.lock().unwrap().sent.len(), 1);
     w.stop();
 }
