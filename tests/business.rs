@@ -311,3 +311,131 @@ fn company_cannot_send_inquiry_kinds_or_exchange_notices() {
         );
     }
 }
+
+// ---- 日付・同時照会・企業名 (見直しで見つけた不具合の候補) ----
+
+#[test]
+fn resend_across_midnight_is_not_processed_twice() {
+    // 23:59 に受けたファイルの閉局回答が届かず、企業が 0:01 に同じファイルを送り直した場合
+    let t = Tmp::new("midnight");
+    let clock = Clock::fixed(DateTime {
+        y: 2026,
+        mo: 11,
+        d: 21,
+        h: 23,
+        mi: 59,
+        s: 0,
+    });
+    let store = Store::new(Some(t.0.clone())).unwrap();
+    let mut b = BankState::from_conf(&Conf::parse(CONF).unwrap(), clock.clone(), store).unwrap();
+    let f = fmt(FileKind::Sogo);
+    let data = f.build(Code::Jis, header(f), &[item(f, 1, TANAKA, "ﾀﾅｶ", 700)]).unwrap();
+    receive(&mut b, FileKind::Sogo, 1, data.clone()).unwrap();
+    clock.set(DateTime {
+        y: 2026,
+        mo: 11,
+        d: 22,
+        h: 0,
+        mi: 1,
+        s: 0,
+    });
+    receive(&mut b, FileKind::Sogo, 1, data.clone()).unwrap();
+    assert_eq!(b.balance(&acct(TANAKA)), Some(5700), "二重に処理しない");
+    // 何日も経ってから同じものが来たら、新しい依頼として処理する (保持する期間を過ぎた記録は捨てる)
+    clock.set(DateTime {
+        y: 2026,
+        mo: 12,
+        d: 5,
+        h: 9,
+        mi: 0,
+        s: 0,
+    });
+    receive(&mut b, FileKind::Sogo, 1, data).unwrap();
+    assert_eq!(b.balance(&acct(TANAKA)), Some(6400));
+}
+
+#[test]
+fn concurrent_inquiries_do_not_mark_undelivered_items() {
+    // 同じ企業が同じ業務を2本の接続で同時に取りに来た場合。A が渡し終えても、A に入っていない取引は通知済みにしない
+    let t = Tmp::new("concurrent");
+    let mut b = t.bank();
+    let f = fmt(FileKind::Sogo);
+    let send = |b: &mut BankState, cycle: u8, amount: u64| {
+        let data = f.build(Code::Jis, header(f), &[item(f, 1, TANAKA, "ﾀﾅｶ", amount)]).unwrap();
+        receive(b, FileKind::Sogo, cycle, data).unwrap();
+    };
+    send(&mut b, 1, 100);
+    let p = peer(&b);
+    let m = fmt(FileKind::Meisai);
+    let name = make_name(&m.name_kind[..4], &m.name_kind[4..], 1);
+    let req = FileCtl::new(START_REQ, name, p.key, m.rec_len as u16, false);
+    let mut a = b.start_send(&p, &req).unwrap().unwrap(); // A: 取引 1 件
+    send(&mut b, 2, 200);
+    let _b2 = b.start_send(&p, &req).unwrap().unwrap(); // B: 取引 2 件 (B はこのあと失敗する)
+    a.name = name;
+    b.commit_send(&p, &a);
+    let rest = fetch(&mut b, FileKind::Meisai, START_REQ).expect("A に入っていない取引が残っている");
+    let got = m.parse(&rest).unwrap();
+    assert_eq!(got.data.iter().map(|d| d.num("amount")).collect::<Vec<_>>(), [200]);
+}
+
+#[test]
+fn concurrent_notice_inquiries_do_not_lose_notices() {
+    // 振込入金通知でも同じ
+    use zengin::exchange::{Item, Transfer, build_file};
+    let t = Tmp::new("concurrent-notice");
+    let mut b = t.bank();
+    let net = b.net.clone();
+    let credit = |b: &mut BankState, h: u64, amount: u64| {
+        let tr = Transfer {
+            handling_no: h,
+            src_bank: 2,
+            src_branch: 20,
+            dst_bank: 1,
+            dst_branch: 10,
+            acct_kind: 1,
+            acct_no: "0000001".into(),
+            name: "ｱｸﾐ".into(),
+            amount,
+            client_code: 9,
+            client_name: "ﾍﾞﾀ".into(),
+            edi: String::new(),
+        };
+        let data = build_file(FileKind::Ex91, 0, 1, &[Item::Transfer(tr)], &clock().now(), Code::Jis).unwrap();
+        let file = InFile {
+            name: make_name("9020", "9091", h as u8),
+            rec_len: 200,
+            rec_id: 0,
+            data,
+        };
+        b.validate_recv(&net, &file).unwrap();
+        b.commit_recv(&net, file);
+    };
+    credit(&mut b, 1, 100);
+    let p = peer(&b);
+    let n = fmt(FileKind::Nyukin);
+    let name = make_name(&n.name_kind[..4], &n.name_kind[4..], 1);
+    let req = FileCtl::new(START_REQ, name, p.key, n.rec_len as u16, false);
+    let mut a = b.start_send(&p, &req).unwrap().unwrap();
+    credit(&mut b, 2, 200);
+    let _b2 = b.start_send(&p, &req).unwrap().unwrap();
+    a.name = name;
+    b.commit_send(&p, &a);
+    assert_eq!(b.pending_notices("ACME"), 1, "A に入っていない通知は残る");
+}
+
+#[test]
+fn company_names_must_be_encodable() {
+    // 企業の口座の名義 (既定はセクション名) は、明細などのファイルに入るので、使える文字だけにする
+    let bad = CONF.replace("[company ACME]", "[company acme]");
+    let store = Store::new(None).unwrap();
+    let e = BankState::from_conf(&Conf::parse(&bad).unwrap(), clock(), store)
+        .err()
+        .expect("英小文字は使えない");
+    assert!(e.to_string().contains("acme"), "{e}");
+    // name で名義を指定すれば、セクション名は識別子として何でもよい
+    let ok = bad.replace("code = 1\n", "code = 1\nname = ｱｸﾐ\n");
+    let mut b = BankState::from_conf(&Conf::parse(&ok).unwrap(), clock(), Store::new(None).unwrap()).unwrap();
+    let out = fetch(&mut b, FileKind::Zandaka, START_REQ).unwrap();
+    assert_eq!(fmt(FileKind::Zandaka).parse(&out).unwrap().data[0].get("acct_name"), "ｱｸﾐ");
+}

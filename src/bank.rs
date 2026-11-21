@@ -12,7 +12,7 @@ use crate::record::{FileKind, Parsed, fmt, kind_from_name, kind_from_name_mode, 
 use crate::server::Server;
 use crate::session::{Opts, send_file};
 use crate::store::Store;
-use crate::util::{Clock, Result, lock, proto, small};
+use crate::util::{Clock, Result, days_from_ymd, lock, proto, small};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -24,6 +24,10 @@ pub use biz::TRANSFER_KINDS;
 use biz::{Biz, TXN_OTHER, TXN_TRANSFER};
 
 const WHO: &str = "銀行";
+/// 受け取った企業のファイルの記録を保持する日数。この間に同じファイルが届いたら重複とみなす
+const FILES_RETAIN_DAYS: i64 = 7;
+/// 照会で渡している途中のものを、企業・業務ごとに覚えておく数 (同時の照会と、途中で終わった照会のため)
+const MAX_INFLIGHT: usize = 8;
 const NET: &str = "net";
 
 /// 口座の識別: (支店番号, 預金種目, 口座番号7桁)
@@ -111,15 +115,17 @@ pub struct BankState {
     pub sent: BTreeMap<u64, Sent>,
     credited: BTreeMap<(u16, u64), Credited>,
     seen: BTreeSet<(u16, u64, u8)>,
-    /// 確定した企業のファイルの指紋 (再送された同じファイルを無視するため)
-    files_seen: BTreeSet<String>,
+    /// 確定した企業のファイル: 「企業 \t 指紋」→ 受け取った日 (YYYYMMDD)。再送された同じファイルを無視するため。
+    /// 日付を判定に含めない (日をまたいだ再送も重複とみなす)。`FILES_RETAIN_DAYS` 日より古い記録は捨てる
+    files_seen: BTreeMap<String, String>,
     /// 取扱番号の通し番号 (年をまたいでも重ならない)
     counter: u64,
     next_notice_id: u64,
     inquiry: u64,
     cycles: HashMap<String, u8>,
-    /// 振込入金通知として渡している途中の通知の識別子 (企業ごと)
-    inflight: HashMap<String, Vec<u64>>,
+    /// 振込入金通知として渡している途中の通知: 企業 → [(渡したファイルの指紋, 通知の識別子)]。
+    /// 同じ企業が同時に照会しても、閉局まで終わったファイルに入っていた通知だけを通知済みにする
+    inflight: HashMap<String, Vec<(u64, Vec<u64>)>>,
     /// 最後に渡し終えた振込入金通知のファイル (企業ごと)。再送要求で、もう一度渡すために残す
     last_notice: HashMap<String, Vec<u8>>,
     /// 振込以外の業務の状態
@@ -170,7 +176,7 @@ impl BankState {
             sent: BTreeMap::new(),
             credited: BTreeMap::new(),
             seen: BTreeSet::new(),
-            files_seen: BTreeSet::new(),
+            files_seen: BTreeMap::new(),
             counter: 0,
             next_notice_id: 0,
             inquiry: 0,
@@ -253,7 +259,19 @@ impl BankState {
                 acct: acct_of(sec, "account")?,
             };
             let opening = sec.get("balance").map_or(Ok(0), |v| num(v, "balance"))?;
+            // 口座の名義 (入出金取引明細・残高通知・振込入金通知に入る)。省略時はセクション名
+            let holder = sec.get("name").unwrap_or(&sec.name);
+            if !name_chars_ok(holder) || holder.chars().count() > 40 {
+                return proto(format!(
+                    "[company {}] の名義は半角カナ・英大文字・数字などで40文字以内にする (name で指定できる): {holder:?}",
+                    sec.name
+                ));
+            }
+            let acct = c.acct.clone();
             b.add_company(c, small::<i64>(opening, "balance")?);
+            if let Some(a) = b.accounts.get_mut(&acct) {
+                a.name = holder.to_string();
+            }
         }
         for sec in conf.of_kind("account") {
             let opening = sec.get("balance").map_or(Ok(0), |v| num(v, "balance"))?;
@@ -381,7 +399,13 @@ impl BankState {
             }
         }
         for l in self.store.lines("files.tsv")? {
-            self.files_seen.insert(l);
+            // 企業 \t 日付 \t 指紋
+            match l.split('\t').collect::<Vec<_>>()[..] {
+                [c, d, h] if days_from_ymd(d).is_some() => {
+                    self.files_seen.insert(format!("{c}\t{h}"), d.to_string());
+                }
+                _ => return corrupt("files.tsv", &l),
+            }
         }
         for l in self.store.lines("meta.tsv")? {
             let f: Vec<&str> = l.split('\t').collect();
@@ -457,7 +481,14 @@ impl BankState {
             })
             .collect();
         let seen: Vec<String> = self.seen.iter().map(|(a, b, c)| format!("{a}\t{b}\t{c}")).collect();
-        let files: Vec<String> = self.files_seen.iter().cloned().collect();
+        let files: Vec<String> = self
+            .files_seen
+            .iter()
+            .map(|(k, d)| {
+                let (c, h) = k.split_once('\t').unwrap_or((k, ""));
+                format!("{c}\t{d}\t{h}")
+            })
+            .collect();
         let mut meta = vec![
             format!("handling\t{}", self.counter),
             format!("notice_id\t{}", self.next_notice_id),
@@ -535,9 +566,22 @@ impl BankState {
 
     // ---- 企業からの総合振込・給与振込 ----
 
-    /// 企業のファイルの重複判定に使う指紋 (企業、日付、ファイル名とデータ)。
+    /// 企業のファイルの重複判定に使う指紋 (企業、ファイル名とデータ)。
     fn file_fp(&self, company: &str, f: &InFile) -> String {
-        format!("{company}\t{}\t{:016x}", self.clock.now().ymd(), fingerprint(&[&f.name, &f.data]))
+        format!("{company}\t{:016x}", fingerprint(&[&f.name, &f.data]))
+    }
+
+    /// 受信済みの記録のうち、保持する期間を過ぎたものを捨てる。
+    fn prune_files_seen(&mut self) {
+        let today = days_from_ymd(&self.clock.now().ymd()).unwrap_or(0);
+        self.files_seen
+            .retain(|_, d| days_from_ymd(d).is_some_and(|x| today - x <= FILES_RETAIN_DAYS));
+    }
+
+    /// 同じファイルを、保持する期間の中で受け取ったか。
+    fn file_seen(&mut self, key: &str) -> bool {
+        self.prune_files_seen();
+        self.files_seen.contains_key(key)
     }
 
     fn process_company_file(&mut self, company: &Company, kind: FileKind, p: &Parsed) {
@@ -915,7 +959,6 @@ impl BankState {
             mine.push(n.clone());
         }
         if mine.is_empty() {
-            self.inflight.remove(&company.name);
             return Ok(None);
         }
         let f = fmt(FileKind::Nyukin);
@@ -953,7 +996,11 @@ impl BankState {
             })
             .collect();
         let bytes = f.build(Code::Jis, h, &data)?;
-        self.inflight.insert(company.name.clone(), mine.iter().map(|n| n.id).collect());
+        let flights = self.inflight.entry(company.name.clone()).or_default();
+        flights.push((fingerprint(&[&bytes]), mine.iter().map(|n| n.id).collect()));
+        if flights.len() > MAX_INFLIGHT {
+            flights.remove(0); // 途中で終わった照会の分。通知は消さずに残っているので、次の照会でまた渡す
+        }
         let cycle = self.cycles.get(&company.name).copied().unwrap_or(0) % 99 + 1;
         Ok(Some(OutFile {
             name: make_name("5020", "0001", cycle),
@@ -1018,10 +1065,11 @@ impl Handler for BankState {
             self.log(&format!("{}: 振込ファイルが不正: {e}", peer.name));
             OTHER_ERR
         })?;
-        let Some(c) = self.companies.iter().find(|c| c.name == peer.name) else {
+        let Some(c) = self.companies.iter().find(|c| c.name == peer.name).cloned() else {
             return Err(OTHER_ERR);
         };
-        if self.reject_duplicates && self.files_seen.contains(&self.file_fp(&c.name, f)) {
+        let key = self.file_fp(&c.name, f);
+        if self.reject_duplicates && self.file_seen(&key) {
             self.log(&format!("{}: 受信済みのファイルなので、二重ファイル伝送として拒否した", peer.name));
             return Err(crate::control::DUPLICATE_FILE);
         }
@@ -1052,10 +1100,12 @@ impl Handler for BankState {
             }
         } else if let (Some(c), Ok(p)) = (self.companies.iter().find(|c| c.name == peer.name).cloned(), fm.parse(&f.data)) {
             // 企業が閉局回答を受け取れずに同じファイルを再送しても、二重に処理しない
-            if !self.files_seen.insert(self.file_fp(&c.name, &f)) {
+            let key = self.file_fp(&c.name, &f);
+            if self.file_seen(&key) {
                 self.log(&format!("{}: 同じファイルを再受信したので無視した", c.name));
                 return;
             }
+            self.files_seen.insert(key, self.clock.now().ymd());
             if TRANSFER_KINDS.contains(&fm.kind) {
                 self.process_company_file(&c, fm.kind, &p);
             } else {
@@ -1109,7 +1159,12 @@ impl Handler for BankState {
             Some(fm) if fm.kind != FileKind::Nyukin => return self.commit_send_biz(&peer.name, fm, &f.data),
             _ => {}
         }
-        if let Some(ids) = self.inflight.remove(&peer.name) {
+        let h = fingerprint(&[&f.data]);
+        let found = self.inflight.get_mut(&peer.name).and_then(|v| {
+            let i = v.iter().position(|(x, _)| *x == h)?;
+            Some(v.remove(i).1)
+        });
+        if let Some(ids) = found {
             self.last_notice.insert(peer.name.clone(), f.data.clone());
             // 件数ではなく識別子で消す。取得が重なっても、渡していない通知は消えない
             self.notices.retain(|x| !(x.company == peer.name && ids.contains(&x.id)));

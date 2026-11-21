@@ -104,6 +104,22 @@ impl Clock {
     }
 }
 
+/// 西暦 YYYYMMDD を、1970-01-01 からの日数にする (Howard Hinnant の days_from_civil)。
+pub fn days_from_ymd(ymd: &str) -> Option<i64> {
+    let y: i64 = ymd.get(..4)?.parse().ok()?;
+    let m: i64 = ymd.get(4..6)?.parse().ok()?;
+    let d: i64 = ymd.get(6..8)?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe - 719468)
+}
+
 // Howard Hinnant の civil_from_days。
 fn civil_from_days(z: i64) -> (i64, u8, u8) {
     let z = z + 719468;
@@ -149,6 +165,16 @@ mod tests {
         assert_eq!(bcd_decode(&b).unwrap(), "261121103015");
         assert!(bcd_encode("123").is_none());
         assert!(bcd_decode(&[0x1A]).is_none());
+    }
+
+    #[test]
+    fn days_from_ymd_is_the_inverse() {
+        for z in [-1, 0, 1, 19_000, 20_000, 20_778, 20_779, 20_819] {
+            let (y, m, d) = civil_from_days(z);
+            assert_eq!(days_from_ymd(&format!("{y:04}{m:02}{d:02}")), Some(z));
+        }
+        assert_eq!(days_from_ymd("20261122").unwrap() - days_from_ymd("20261121").unwrap(), 1);
+        assert_eq!(days_from_ymd("2026x121"), None);
     }
 
     #[test]

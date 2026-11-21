@@ -6,7 +6,7 @@
 //! - そのほかの照会の業務 (住宅ローン、借入金、外国為替など) は、銀行の担当者が `zengin bank publish` で
 //!   登録したファイルを、企業が取りに来たときに渡す。
 
-use super::{AcctKey, BankState, Company, acct_str, corrupt};
+use super::{AcctKey, BankState, Company, MAX_INFLIGHT, acct_str, corrupt, fingerprint};
 use crate::charcode::Code;
 use crate::control::RETRY_REQ;
 use crate::handler::OutFile;
@@ -65,7 +65,8 @@ pub(super) struct Biz {
     pub zaikei: BTreeMap<(String, String), u64>,
     /// 業務ごとに最後に渡し終えたファイル: (企業, 識別部) → データ。再送要求でもう一度渡す
     pub last_sent: HashMap<(String, String), Vec<u8>>,
-    pub inflight: HashMap<(String, String), Flight>,
+    /// 照会で渡している途中のもの: (企業, 識別部) → [(渡したファイルの指紋, 中身)]
+    pub inflight: HashMap<(String, String), Vec<(u64, Flight)>>,
     pub next_id: u64,
 }
 
@@ -414,21 +415,20 @@ impl BankState {
                 .find(|o| o.company == company.name && o.name_kind == f.name_kind)
                 .map(|o| (o.data.clone(), Flight::Out(o.id))),
         };
-        let data = match built {
-            Some((data, flight)) => {
-                self.biz.inflight.insert(key, flight);
-                data
-            }
+        let (data, flight) = match built {
+            Some(x) => x,
             // 再送要求で、新しく渡すものがなければ、最後に渡し終えたファイルをもう一度渡す
             None if kind == RETRY_REQ => match self.biz.last_sent.get(&key) {
-                Some(d) => {
-                    self.biz.inflight.insert(key, Flight::Nothing);
-                    d.clone()
-                }
+                Some(d) => (d.clone(), Flight::Nothing),
                 None => return Ok(None),
             },
             None => return Ok(None),
         };
+        let flights = self.biz.inflight.entry(key).or_default();
+        flights.push((fingerprint(&[&data]), flight));
+        if flights.len() > MAX_INFLIGHT {
+            flights.remove(0);
+        }
         let code = if data.first() == Some(&0xF1) { Code::Ebcdic } else { Code::Jis };
         Ok(Some(OutFile {
             name: [0; 12], // 二次局が要求のファイル名に置き換える
@@ -443,7 +443,12 @@ impl BankState {
     /// 閉局まで終わった照会を確定する。
     pub(super) fn commit_send_biz(&mut self, company: &str, f: &Fmt, data: &[u8]) {
         let key = (company.to_string(), f.name_kind.to_string());
-        match self.biz.inflight.remove(&key) {
+        let h = fingerprint(&[data]);
+        let found = self.biz.inflight.get_mut(&key).and_then(|v| {
+            let i = v.iter().position(|(x, _)| *x == h)?;
+            Some(v.remove(i).1)
+        });
+        match found {
             Some(Flight::Txns(ids)) => {
                 for t in self.biz.history.iter_mut().filter(|t| ids.contains(&t.id)) {
                     t.notified = true;
